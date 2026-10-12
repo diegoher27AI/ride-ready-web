@@ -1,5 +1,5 @@
 // Ride Ready service worker: the app shell works offline; data is always fetched fresh when online.
-const CACHE = 'rr-shell-v6';
+const CACHE = 'rr-shell-v7';
 const SHELL = ['./', 'index.html', 'adapter.js', 'importer.js', 'account.js', 'vendor/d3.min.js', 'vendor/supabase.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });

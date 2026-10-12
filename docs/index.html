@@ -1130,7 +1130,13 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     else if (d.status === 'error') st.textContent = 'Strava didn’t answer. Try again in a minute.';
   }
   let armed = false, sinceSet = false;
-  $('btn-refresh').addEventListener('click', () => { const since = localIso(new Date(Date.now() - 3 * DAY)) + 'T00:00:00'; if (dash.params().since !== since) dash.setParams({ since }); else dash.refresh('strava_live'); });
+  $('btn-refresh').addEventListener('click', async () => {
+    const btn = $('btn-refresh'); const st = $('upd-st'); const sync = window.rrAccount && window.rrAccount.syncNow;
+    btn.setAttribute('aria-busy', 'true');
+    if (sync) { try { await sync(); } catch (e) { st.textContent = String(e.message || e); } }
+    dash.refresh();
+    btn.setAttribute('aria-busy', 'false');
+  });
   $('btn-claude').addEventListener('click', async () => {
     const st = $('upd-st'), btn = $('btn-claude');
     if (!armed) { armed = true; btn.classList.add('arm'); $('btn-claude-l').textContent = 'Tap again to start'; $('wbox').hidden = false; st.textContent = 'Claude re-runs your full morning update (about 10 minutes). Add today’s Whoop numbers if you have them.'; return; }

@@ -159,20 +159,32 @@
     $('ra-iv-st').textContent = error ? t('err') : t('saved');
   }
 
-  async function onSync() {
-    $('ra-sync').disabled = true;
-    $('ra-sync-st').textContent = t('syncing');
+  // Llama a la funcion que trae lo nuevo de intervals.icu. La usan tanto el boton
+  // de Cuenta como el "Actualizar" de la pantalla principal (si hay sesion iniciada).
+  async function syncNow() {
+    if (!session) return null;
     const { data, error } = await sb.functions.invoke('intervals-sync');
-    $('ra-sync').disabled = false;
     if (error) {
       let detail = error.message || '';
       try { const body = await error.context.json(); if (body && body.error) detail = body.error; } catch (e) {}
-      $('ra-sync-st').textContent = t('err') + (detail ? ' (' + detail + ')' : '');
       console.error('intervals-sync', error, detail);
-    } else {
+      throw new Error(detail || t('err'));
+    }
+    return data;
+  }
+  window.rrAccount = { syncNow };
+
+  async function onSync() {
+    $('ra-sync').disabled = true;
+    $('ra-sync-st').textContent = t('syncing');
+    try {
+      const data = await syncNow();
       $('ra-sync-st').textContent = t('sync_ok')(data.activities, data.wellness);
       if (window.dash && window.dash.refresh) window.dash.refresh();
+    } catch (e) {
+      $('ra-sync-st').textContent = t('err') + (e.message ? ' (' + e.message + ')' : '');
     }
+    $('ra-sync').disabled = false;
   }
 
   async function onSignOut() { await sb.auth.signOut(); close(); }
