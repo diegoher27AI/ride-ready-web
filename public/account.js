@@ -8,8 +8,9 @@
     es: {
       btn: 'Cuenta', title: 'Tu cuenta', close: 'Cerrar',
       intro: 'Entra con tu correo para guardar tu conexion con intervals.icu. No hace falta contrasena.',
-      email: 'Tu correo', send: 'Enviar enlace', sent: 'Revisa tu correo y toca el enlace para entrar.',
+      email: 'Tu correo', send: 'Enviar codigo', sent: 'Revisa tu correo y escribe aqui el codigo de 6 numeros.',
       bad_email: 'Escribe un correo valido.',
+      code: 'Codigo de 6 numeros', confirm: 'Confirmar codigo', bad_code: 'Ese codigo no es valido o ya vencio.',
       signed_as: (e) => `Conectado como ${e}`, signout: 'Cerrar sesion',
       iv_h: 'Conexion con intervals.icu', iv_p: 'Pega tu clave de intervals.icu (Settings, API Key en tu cuenta de intervals.icu).',
       iv_key: 'Clave de API', iv_athlete: 'ID de atleta (opcional)', save: 'Guardar', saved: 'Guardado.',
@@ -21,8 +22,9 @@
     en: {
       btn: 'Account', title: 'Your account', close: 'Close',
       intro: 'Sign in with your email to save your intervals.icu connection. No password needed.',
-      email: 'Your email', send: 'Send link', sent: 'Check your email and tap the link to sign in.',
+      email: 'Your email', send: 'Send code', sent: 'Check your email and type the 6-digit code here.',
       bad_email: 'Enter a valid email.',
+      code: '6-digit code', confirm: 'Confirm code', bad_code: 'That code is wrong or expired.',
       signed_as: (e) => `Signed in as ${e}`, signout: 'Sign out',
       iv_h: 'intervals.icu connection', iv_p: 'Paste your intervals.icu key (Settings, API Key in your intervals.icu account).',
       iv_key: 'API key', iv_athlete: 'Athlete ID (optional)', save: 'Save', saved: 'Saved.',
@@ -64,7 +66,7 @@
     set('btn-account-l', t('btn')); set('ra-title', t('title')); set('ra-close', t('close'));
     $('ra-login').hidden = signedIn;
     $('ra-account').hidden = !signedIn;
-    set('ra-intro', t('intro')); set('ra-l-email', t('email')); set('ra-send', t('send'));
+    set('ra-intro', t('intro')); set('ra-l-email', t('email')); set('ra-send', t('send')); set('ra-l-code', t('code')); set('ra-confirm', t('confirm'));
     set('ra-iv-h', t('iv_h')); set('ra-iv-p', t('iv_p')); set('ra-l-key', t('iv_key')); set('ra-l-athlete', t('iv_athlete')); set('ra-save', t('save')); set('ra-sync', t('sync')); set('ra-signout', t('signout'));
     if (signedIn) set('ra-signed', t('signed_as')(session.user.email));
   }
@@ -99,6 +101,8 @@
         <div class="ra-field"><span id="ra-l-email"></span><input id="ra-email" type="email" inputmode="email" autocomplete="email" placeholder="tu@correo.com"></div>
         <button type="button" class="ra-btn" id="ra-send"></button>
         <div class="ra-st" id="ra-login-st" role="status"></div>
+        <div class="ra-field" id="ra-code-wrap" hidden><span id="ra-l-code"></span><input id="ra-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"></div>
+        <button type="button" class="ra-btn" id="ra-confirm" hidden></button>
       </div>
       <div id="ra-account" class="ra-sec" hidden>
         <p id="ra-signed"></p>
@@ -117,6 +121,7 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !sh.hidden) close(); });
     $('ra-close').addEventListener('click', close);
     $('ra-send').addEventListener('click', onSend);
+    $('ra-confirm').addEventListener('click', onConfirmCode);
     $('ra-save').addEventListener('click', onSave);
     $('ra-sync').addEventListener('click', onSync);
     $('ra-signout').addEventListener('click', onSignOut);
@@ -131,6 +136,17 @@
     const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
     $('ra-send').disabled = false;
     $('ra-login-st').textContent = error ? t('err') : t('sent');
+    if (!error) { $('ra-code-wrap').hidden = false; $('ra-confirm').hidden = false; $('ra-code').focus(); }
+  }
+
+  async function onConfirmCode() {
+    const email = $('ra-email').value.trim();
+    const token = $('ra-code').value.trim();
+    if (!email || !token) return;
+    $('ra-confirm').disabled = true;
+    const { error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+    $('ra-confirm').disabled = false;
+    $('ra-login-st').textContent = error ? t('bad_code') : '';
   }
 
   async function onSave() {
