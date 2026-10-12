@@ -9,10 +9,13 @@
       w_btn: 'Elegir archivos', w_need: 'Falta physiological_cycles.csv: es el archivo con la recuperación, la VFC y el sueño.',
       w_ok: (n, a, b, j) => `Listo: ${n} días de recuperación (${a} a ${b})` + (j ? ` y ${j} días del diario.` : '.'),
       w_priv: 'Del diario solo se guardan alcohol, azúcar añadida y comida tarde.',
-      d_h: 'Datos de hoy', d_p: 'Los números de Whoop de esta mañana, si no cargaste la exportación.',
-      rec: 'Recuperación %', hrv: 'VFC ms', rhr: 'Pulso en reposo', sl: 'Sueño (h:mm)',
+      wk_h: 'Agregar entrenamiento a mano', wk_p: 'Para sesiones que no llegan solas, como el HIIT. Se suma a tu forma física y fatiga.',
+      wk_date: 'Fecha', wk_type: 'Tipo', wk_hiit: 'HIIT', wk_gym: 'Pesas', wk_other: 'Otro',
+      wk_dur: 'Duración (min)', wk_rpe: 'Qué tan duro (1 a 10)', wk_cal: 'Calorías (opcional)',
+      wk_btn: 'Guardar entrenamiento', wk_ok: 'Entrenamiento guardado.', wk_bad: 'Escribe al menos la duración.',
+      d_h: 'Diario de hoy', d_p: 'Lo que ningún conector trae solo.',
       alc: 'Alcohol ayer', sug: 'Azúcar añadida ayer', late: 'Comida tarde anoche',
-      d_btn: 'Guardar datos de hoy', d_ok: 'Guardado para hoy.', d_bad: 'Escribe al menos la recuperación (0 a 100).',
+      d_btn: 'Guardar diario', d_ok: 'Guardado.',
       f_h: 'Archivos FIT de actividades', f_p: 'Muy pronto: subir actividades del Garmin o del Hammerhead cuando no se sincronicen solas.',
       local: 'Todo se guarda solo en este teléfono.', clear: 'Borrar lo cargado', cleared: 'Se borró lo cargado en este teléfono.',
       store_full: 'No hay espacio para guardar en este teléfono.'
@@ -23,10 +26,13 @@
       w_btn: 'Choose files', w_need: 'physiological_cycles.csv is missing: it holds recovery, HRV and sleep.',
       w_ok: (n, a, b, j) => `Done: ${n} days of recovery (${a} to ${b})` + (j ? ` and ${j} journal days.` : '.'),
       w_priv: 'From the journal only alcohol, added sugar and late meals are kept.',
-      d_h: "Today's numbers", d_p: "This morning's Whoop numbers, if you didn't load the export.",
-      rec: 'Recovery %', hrv: 'HRV ms', rhr: 'Resting HR', sl: 'Sleep (h:mm)',
+      wk_h: 'Add a workout by hand', wk_p: "For sessions that don't sync on their own, like HIIT. Counts toward your fitness and fatigue.",
+      wk_date: 'Date', wk_type: 'Type', wk_hiit: 'HIIT', wk_gym: 'Weights', wk_other: 'Other',
+      wk_dur: 'Duration (min)', wk_rpe: 'How hard (1 to 10)', wk_cal: 'Calories (optional)',
+      wk_btn: 'Save workout', wk_ok: 'Workout saved.', wk_bad: 'Enter at least the duration.',
+      d_h: "Today's diary", d_p: "What no connector brings on its own.",
       alc: 'Alcohol yesterday', sug: 'Added sugar yesterday', late: 'Late meal last night',
-      d_btn: "Save today's numbers", d_ok: 'Saved for today.', d_bad: 'Enter at least recovery (0 to 100).',
+      d_btn: 'Save diary', d_ok: 'Saved.',
       f_h: 'Activity FIT files', f_p: 'Coming soon: upload Garmin or Hammerhead activities when they do not sync on their own.',
       local: 'Everything is stored only on this phone.', clear: 'Delete loaded data', cleared: 'Loaded data deleted from this phone.',
       store_full: 'There is no room to save on this phone.'
@@ -53,6 +59,7 @@
     return rows.filter((r) => r.length > 1).map((r) => Object.fromEntries(head.map((h, i) => [h, r[i]])));
   }
   const num = (x) => { const v = parseFloat(x); return isFinite(v) ? v : null; };
+  const clampNum = (v, lo, hi, dflt) => (v == null ? dflt : Math.min(hi, Math.max(lo, v)));
 
   // Same rules as the plugin's whoop_import.py.
   function importWhoop(cycles, journal) {
@@ -95,7 +102,7 @@
   .rr-st{font-size:13px;margin-top:8px;min-height:1.2em;color:var(--ink)}
   .rr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:10px}
   .rr-grid label{display:grid;gap:4px;font-size:12px;color:var(--ink2);font-weight:600}
-  .rr-grid input{width:100%;min-width:0;box-sizing:border-box;padding:10px;border-radius:12px;border:1px solid var(--hair);background:rgba(255,255,255,.08);color:var(--ink);font:600 16px/1 -apple-system,system-ui,sans-serif}
+  .rr-grid input,.rr-grid select{width:100%;min-width:0;box-sizing:border-box;padding:10px;border-radius:12px;border:1px solid var(--hair);background:rgba(255,255,255,.08);color:var(--ink);font:600 16px/1 -apple-system,system-ui,sans-serif}
   .rr-tg{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
   .rr-tg label{display:flex;align-items:center;gap:6px;font-size:13px;padding:8px 12px;border-radius:999px;border:1px solid var(--hair);background:var(--glass)}
   .rr-tg input{width:18px;height:18px;accent-color:var(--blue)}
@@ -120,13 +127,20 @@
       <div class="rr-sec"><h3 id="rr-w-h"></h3><p id="rr-w-p"></p>
         <input type="file" id="rr-files" accept=".csv,text/csv" multiple hidden>
         <button type="button" class="rr-btn" id="rr-w-btn"></button><div class="rr-st" id="rr-w-st" role="status"></div><p id="rr-w-priv" style="margin-top:8px"></p></div>
-      <div class="rr-sec"><h3 id="rr-d-h"></h3><p id="rr-d-p"></p>
+      <div class="rr-sec"><h3 id="rr-wk-h"></h3><p id="rr-wk-p"></p>
         <div class="rr-grid">
-          <label><span id="rr-l-rec"></span><input id="rr-rec" inputmode="numeric" autocomplete="off"></label>
-          <label><span id="rr-l-hrv"></span><input id="rr-hrv" inputmode="numeric" autocomplete="off"></label>
-          <label><span id="rr-l-rhr"></span><input id="rr-rhr" inputmode="numeric" autocomplete="off"></label>
-          <label><span id="rr-l-sl"></span><input id="rr-sl" inputmode="decimal" placeholder="7:30" autocomplete="off"></label>
+          <label><span id="rr-l-wk-date"></span><input id="rr-wk-date" type="date" autocomplete="off"></label>
+          <label><span id="rr-l-wk-type"></span><select id="rr-wk-type">
+            <option value="HIIT" id="rr-o-hiit"></option>
+            <option value="WeightTraining" id="rr-o-gym"></option>
+            <option value="Workout" id="rr-o-other"></option>
+          </select></label>
+          <label><span id="rr-l-wk-dur"></span><input id="rr-wk-dur" inputmode="numeric" autocomplete="off"></label>
+          <label><span id="rr-l-wk-rpe"></span><input id="rr-wk-rpe" inputmode="numeric" autocomplete="off"></label>
+          <label><span id="rr-l-wk-cal"></span><input id="rr-wk-cal" inputmode="numeric" autocomplete="off"></label>
         </div>
+        <button type="button" class="rr-btn" id="rr-wk-btn"></button><div class="rr-st" id="rr-wk-st" role="status"></div></div>
+      <div class="rr-sec"><h3 id="rr-d-h"></h3><p id="rr-d-p"></p>
         <div class="rr-tg">
           <label><input type="checkbox" id="rr-alc"><span id="rr-l-alc"></span></label>
           <label><input type="checkbox" id="rr-sug"><span id="rr-l-sug"></span></label>
@@ -143,6 +157,7 @@
     $('rr-w-btn').addEventListener('click', () => $('rr-files').click());
     $('rr-files').addEventListener('change', onFiles);
     $('rr-d-btn').addEventListener('click', onToday);
+    $('rr-wk-btn').addEventListener('click', onWorkout);
     $('rr-clear').addEventListener('click', () => { window.rrLocal.clear(); $('rr-d-st').textContent = t('cleared'); });
     labels();
     const sw = document.getElementById('lang-sw'); if (sw) sw.addEventListener('click', () => setTimeout(labels, 0));
@@ -150,11 +165,14 @@
   function labels() {
     const set = (id, k) => { const e = $(id); if (e) e.textContent = t(k); };
     set('btn-load-l', 'btn'); set('rr-title', 'title'); set('rr-close', 'close'); set('rr-w-h', 'w_h'); set('rr-w-p', 'w_p'); set('rr-w-btn', 'w_btn'); set('rr-w-priv', 'w_priv');
-    set('rr-d-h', 'd_h'); set('rr-d-p', 'd_p'); set('rr-l-rec', 'rec'); set('rr-l-hrv', 'hrv'); set('rr-l-rhr', 'rhr'); set('rr-l-sl', 'sl');
+    set('rr-wk-h', 'wk_h'); set('rr-wk-p', 'wk_p'); set('rr-l-wk-date', 'wk_date'); set('rr-l-wk-type', 'wk_type');
+    set('rr-o-hiit', 'wk_hiit'); set('rr-o-gym', 'wk_gym'); set('rr-o-other', 'wk_other');
+    set('rr-l-wk-dur', 'wk_dur'); set('rr-l-wk-rpe', 'wk_rpe'); set('rr-l-wk-cal', 'wk_cal'); set('rr-wk-btn', 'wk_btn');
+    set('rr-d-h', 'd_h'); set('rr-d-p', 'd_p');
     set('rr-l-alc', 'alc'); set('rr-l-sug', 'sug'); set('rr-l-late', 'late'); set('rr-d-btn', 'd_btn'); set('rr-f-h', 'f_h'); set('rr-f-p', 'f_p'); set('rr-local', 'local'); set('rr-clear', 'clear');
   }
   let lastFocus = null;
-  function open() { labels(); lastFocus = document.activeElement; $('rr-sheet').hidden = false; $('rr-close').focus(); }
+  function open() { labels(); if (!$('rr-wk-date').value) $('rr-wk-date').value = todayIso(); lastFocus = document.activeElement; $('rr-sheet').hidden = false; $('rr-close').focus(); }
   function close() { $('rr-sheet').hidden = true; if (lastFocus) lastFocus.focus(); }
 
   async function onFiles(e) {
@@ -172,17 +190,24 @@
   }
   function onToday() {
     const st = $('rr-d-st');
-    const rec = num($('rr-rec').value);
-    if (rec == null || rec < 0 || rec > 100) { st.textContent = t('d_bad'); return; }
-    const sl = $('rr-sl').value.trim();
-    let hours = null;
-    if (/^\d{1,2}:\d{1,2}$/.test(sl)) { const [h, m] = sl.split(':').map(Number); hours = Math.round((h + m / 60) * 100) / 100; }
-    else if (sl) hours = num(sl.replace(',', '.'));
     const date = todayIso();
-    const row = { date, recovery: rec, hrv: num($('rr-hrv').value), rhr: num($('rr-rhr').value), asleep_h: hours, source: 'manual' };
     const flags = { date, alcohol: $('rr-alc').checked ? 1 : 0, sugar: $('rr-sug').checked ? 1 : 0, late_meal: $('rr-late').checked ? 1 : 0 };
-    const ok = window.rrLocal.saveWhoop([row], [flags]);
+    const ok = window.rrLocal.saveWhoop([], [flags]);
     st.textContent = ok ? t('d_ok') : t('store_full');
+  }
+  // Entrenamiento del tipo (duracion x que tan duro) es un estimado, no exacto: alcanza para la forma fisica y la fatiga.
+  function onWorkout() {
+    const st = $('rr-wk-st');
+    const dur = num($('rr-wk-dur').value);
+    if (dur == null || dur <= 0) { st.textContent = t('wk_bad'); return; }
+    const rpe = clampNum(num($('rr-wk-rpe').value), 1, 10, 5);
+    const date = $('rr-wk-date').value || todayIso();
+    const sport = $('rr-wk-type').value;
+    const name = { HIIT: t('wk_hiit'), WeightTraining: t('wk_gym'), Workout: t('wk_other') }[sport] || sport;
+    const row = { date, name: name + ' (a mano)', sport, moving_min: dur, relative_effort: Math.round((dur * rpe) / 20), calories: num($('rr-wk-cal').value), avg_hr: null, max_hr: null, avg_watts: null, source: 'manual' };
+    const ok = window.rrLocal.saveActivity(row);
+    st.textContent = ok ? t('wk_ok') : t('store_full');
+    if (ok) { $('rr-wk-dur').value = ''; $('rr-wk-rpe').value = ''; $('rr-wk-cal').value = ''; if (window.dash && window.dash.refresh) window.dash.refresh(); }
   }
   window.rrImport = { parseCSV, importWhoop };   // exposed for testing
 

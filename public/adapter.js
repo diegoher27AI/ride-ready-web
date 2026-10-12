@@ -62,11 +62,17 @@
     const loc = readLocal();
     const out = { ...raw };
     if ((raw.whoop && raw.whoop.length) || (loc.whoop && loc.whoop.length) || (loc.journal && loc.journal.length)) {
-      const whoop = addAverages(mergeByDate(raw.whoop, loc.whoop));
-      const journal = mergeByDate(raw.journal_flags, loc.journal);
-      out.whoop = whoop;
-      out.journal_flags = journal;
-      const fx = whoopFx(whoop, journal, raw.pmc);
+      out.whoop = addAverages(mergeByDate(raw.whoop, loc.whoop));
+      out.journal_flags = mergeByDate(raw.journal_flags, loc.journal);
+    }
+    // Entrenamientos cargados a mano (como el HIIT) se suman a los de la cuenta, no los reemplazan:
+    // puede haber mas de uno el mismo dia, asi que no se mezclan por fecha, se agregan.
+    if (loc.activities && loc.activities.length) {
+      out.activities = [...(raw.activities || []), ...loc.activities].sort((a, b) => (a.date < b.date ? -1 : 1));
+      out.pmc = computePmc(out.activities);
+    }
+    if (out.whoop && out.whoop.length) {
+      const fx = whoopFx(out.whoop, out.journal_flags, out.pmc || raw.pmc);
       if (fx.length) out.whoop_fx = fx;
     }
     view = Object.fromEntries(Object.entries(out).map(([k, v]) => [k, flat(v)]));
@@ -143,6 +149,12 @@
       const loc = readLocal();
       loc.whoop = mergeByDate(loc.whoop, rows);
       loc.journal = mergeByDate(loc.journal, journal);
+      const ok = writeLocal(loc); rebuild(); fire(); return ok;
+    },
+    // Un entrenamiento a mano por llamada (puede haber varios el mismo dia, por eso solo se agrega).
+    saveActivity(row) {
+      const loc = readLocal();
+      loc.activities = [...(loc.activities || []), row];
       const ok = writeLocal(loc); rebuild(); fire(); return ok;
     },
     clear() { try { localStorage.removeItem(LOCAL); } catch (e) {} rebuild(); fire(); }

@@ -35,14 +35,19 @@ El iPhone solo instala apps web servidas con conexión segura (HTTPS), así que 
 
 **Ojo con la privacidad:** `public/data/` tiene tus datos reales de salud y entrenamiento. No la publiques en una dirección abierta. En la prueba con amigos, cada uno verá solo sus datos (semana 2).
 
+## Cuenta y datos reales (ya funciona)
+
+El botón "Cuenta" permite entrar con el correo (código de 6 números, sin contraseña) y guardar la clave de intervals.icu. Con eso conectado, "Actualizar" trae solas las actividades (Garmin, Karoo) y el bienestar (Whoop: recuperación, VFC, pulso en reposo, sueño) desde intervals.icu, y la app calcula forma física, fatiga, frescura y relación de carga reales.
+
 ## Cargar datos a mano (ya funciona)
 
 El botón "Cargar datos" junto a "Actualizar" permite:
 
-- Subir la exportación de Whoop (physiological_cycles.csv y journal_entries.csv). Del diario solo se guardan alcohol, azúcar añadida y comida tarde; el resto de respuestas se descarta al leer el archivo.
-- Escribir los números de Whoop de la mañana y marcar alcohol, azúcar o comida tarde.
+- Subir la exportación de Whoop (physiological_cycles.csv y journal_entries.csv), para tener historial antes de conectar la cuenta. Del diario solo se guardan alcohol, azúcar añadida y comida tarde; el resto de respuestas se descarta al leer el archivo.
+- Agregar a mano un entrenamiento que no llegue solo (como el HIIT grabado en el reloj de Whoop, que no sube a Garmin): tipo, duración y qué tan duro, para que sume a la forma física y la fatiga.
+- Marcar el diario de hoy (alcohol, azúcar, comida tarde), que ningún conector entrega.
 
-Todo queda solo en el teléfono hasta que exista el servidor. Los gráficos de cuerpo y "Qué mueve tu recuperación" se recalculan al momento.
+Lo cargado a mano queda solo en el teléfono donde se cargó; lo que trae la cuenta (intervals.icu) se guarda en el servidor y se ve en cualquier teléfono donde entres con tu correo.
 
 ## Lo que sigue
 
