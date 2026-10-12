@@ -5,7 +5,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const DAYS_BACK = 30;
+const DAYS_BACK = 1100; // como 3 anos, para traer el historial real de Whoop y de actividades, no solo el ultimo mes
 
 // Deja que la app (en localhost o ya publicada) pueda llamar a esta funcion desde el navegador.
 const CORS_HEADERS = {
