@@ -1,0 +1,1593 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ride Ready</title>
+<meta name="description" content="Tu entrenador de ciclismo: entrenar, ir suave o descansar, cada mañana.">
+<meta name="theme-color" content="#05070d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ride Ready">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<style>
+html, body { margin: 0; background: #05070d; color: #fff; -webkit-text-size-adjust: 100%; }
+body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); font: 14px -apple-system, system-ui, sans-serif; overscroll-behavior-y: none; }
+/* Week 1: updates come from the server later; the Claude button and its Whoop inputs are hidden. */
+#btn-claude, #wbox { display: none !important; }
+</style>
+<script src="vendor/d3.min.js"></script>
+<script src="adapter.js"></script>
+</head>
+<body>
+<div id="dash-root">
+<style>
+#dash-root { --dash-gutter: 0; }
+.jx {
+  --bg: #05070d;
+  --ink: #ffffff;
+  --ink2: rgba(235, 235, 245, .68);
+  --ink3: rgba(235, 235, 245, .42);
+  --hair: rgba(255, 255, 255, .10);
+  --glass: rgba(255, 255, 255, .065);
+  --glass2: rgba(255, 255, 255, .11);
+  --blue: #0A84FF; --pink: #FF375F; --green: #30D158; --red: #FF453A; --orange: #FF9F0A; --yellow: #FFD60A;
+  --s5: #D97706; --s20: #B455F0; --savg: #12A38A;
+  --r: 26px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Helvetica Neue", sans-serif;
+  color: var(--ink); background: var(--bg);
+  position: relative; overflow: hidden; isolation: isolate;
+  -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums;
+  min-height: 100%;
+}
+.jx *, .jx *::before, .jx *::after { box-sizing: border-box; }
+.jx::before { content: ""; position: absolute; inset: 0; z-index: -1; background-size: 100% 1500px; background-repeat: repeat-y;
+  background:
+    radial-gradient(40% 30% at 15% 8%, var(--m1), transparent 70%),
+    radial-gradient(35% 28% at 90% 4%, var(--m2), transparent 70%),
+    radial-gradient(45% 30% at 60% 40%, var(--m3), transparent 70%),
+    radial-gradient(40% 30% at 10% 72%, var(--m4), transparent 70%),
+    radial-gradient(40% 25% at 95% 92%, var(--m5), transparent 70%);
+  }
+.jx { --m1: rgba(10,132,255,.55); --m2: rgba(191,90,242,.45); --m3: rgba(48,209,88,.18); --m4: rgba(255,55,95,.22); --m5: rgba(10,132,255,.30); }
+.jx.mood-ok { --m1: rgba(48,209,88,.50); --m2: rgba(52,199,89,.32); --m3: rgba(100,210,255,.20); --m4: rgba(48,209,88,.24); --m5: rgba(0,199,190,.28); }
+.jx.mood-warn { --m1: rgba(255,214,10,.42); --m2: rgba(255,159,10,.40); --m3: rgba(255,214,10,.14); --m4: rgba(255,159,10,.22); --m5: rgba(255,204,0,.26); }
+.jx.mood-bad { --m1: rgba(255,69,58,.52); --m2: rgba(255,55,95,.40); --m3: rgba(255,69,58,.14); --m4: rgba(255,45,85,.26); --m5: rgba(255,69,58,.30); }
+.jx-wrap { max-width: 1080px; margin: 0 auto; padding: 18px 16px 48px; }
+.jx .num { font-family: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+
+/* header */
+.jx-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.lang-sw button { padding: 5px 11px; min-height: 26px; font-size: 12px; letter-spacing: .04em; }
+.jx-date { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink2); }
+.jx-title { font-size: 34px; line-height: 1.1; font-weight: 700; letter-spacing: -.02em; margin: 2px 0 6px; }
+.jx-sub { font-size: 15px; line-height: 1.4; color: var(--ink2); margin: 0; max-width: 46ch; }
+
+/* glass */
+.g { position: relative; background: var(--glass); border: 1px solid var(--hair); border-radius: var(--r);
+  -webkit-backdrop-filter: blur(28px) saturate(170%); backdrop-filter: blur(28px) saturate(170%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 12px 32px rgba(0,0,0,.35); padding: 18px; }
+.g::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,0) 38%); }
+.g + .g, .jx-sec + .g { margin-top: 14px; }
+.g h3 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+.g .cap { font-size: 13px; color: var(--ink2); margin: 2px 0 12px; line-height: 1.35; }
+.jx-sec { font-size: 22px; font-weight: 700; letter-spacing: -.01em; margin: 26px 4px 10px; }
+.jx-cols { display: grid; gap: 14px; grid-template-columns: 1fr; }
+.jx-cols > .g { margin-top: 0; }
+@media (min-width: 820px) { .jx-cols { grid-template-columns: 1fr 1fr; } }
+
+/* segmented control (sticky) */
+.upd { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 2px 0 14px; }
+.upd .ub { appearance: none; display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--hair); background: var(--glass2); color: var(--ink); font: 600 14px/1 -apple-system, system-ui, sans-serif; cursor: pointer; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.upd .ub svg { width: 16px; height: 16px; }
+.upd .ub:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.upd .ub[aria-busy="true"] svg { animation: spin 1s linear infinite; }
+.upd .ub.arm { background: rgba(10,132,255,.35); border-color: rgba(10,132,255,.7); }
+.upd .ust { width: 100%; text-align: center; font-size: 12px; color: var(--ink2); min-height: 15px; }
+.wbox { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.wbox label { display: grid; gap: 4px; font-size: 11px; color: var(--ink2); font-weight: 600; }
+.wbox input { width: 100%; min-width: 0; padding: 9px 8px; border-radius: 12px; border: 1px solid var(--hair); background: rgba(255,255,255,.08); color: var(--ink); font: 600 16px/1 ui-rounded, -apple-system, system-ui, sans-serif; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .upd .ub[aria-busy="true"] svg { animation: none; } }
+.jx-nav { position: sticky; top: 8px; z-index: 20; display: flex; justify-content: center; margin: 16px 0 6px; }
+.seg { display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(120,120,128,.24); border: 1px solid var(--hair);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.seg button { appearance: none; border: 0; background: transparent; color: var(--ink); font: 600 14px/1 -apple-system, system-ui, sans-serif; padding: 9px 16px; border-radius: 999px; cursor: pointer; min-height: 34px; }
+.seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: rgba(255,255,255,.22); box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 2px 8px rgba(0,0,0,.25); }
+.seg.small button { font-size: 13px; padding: 7px 12px; min-height: 30px; }
+.jx-page[hidden] { display: none; }
+
+/* hero rings */
+.hero { display: grid; grid-template-columns: 148px 1fr; gap: 16px; align-items: center; }
+.rings svg { width: 148px; height: 148px; display: block; }
+.ring-legend { display: grid; gap: 10px; }
+.rl { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: baseline; }
+.rl i { width: 10px; height: 10px; border-radius: 50%; align-self: center; }
+.rl b { font-size: 13px; font-weight: 600; color: var(--ink2); }
+.rl span { font-size: 17px; font-weight: 700; }
+.rl small { grid-column: 2 / 4; font-size: 12px; color: var(--ink3); margin-top: -4px; }
+.verdict-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; letter-spacing: .02em; margin-bottom: 10px; }
+.v-bad { background: rgba(255,69,58,.18); color: #FF6961; border: 1px solid rgba(255,69,58,.35); }
+.v-warn { background: rgba(255,159,10,.18); color: var(--orange); border: 1px solid rgba(255,159,10,.35); }
+.v-ok { background: rgba(48,209,88,.18); color: var(--green); border: 1px solid rgba(48,209,88,.35); }
+@media (max-width: 360px) { .hero { grid-template-columns: 1fr; justify-items: center; } }
+
+/* metric chips */
+.chips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 14px; }
+@media (min-width: 620px) { .chips { grid-template-columns: repeat(4, 1fr); } }
+.chip { background: var(--glass2); border: 1px solid var(--hair); border-radius: 18px; padding: 12px; }
+.chip .k { font-size: 12px; color: var(--ink2); font-weight: 600; }
+.chip .v { font-size: 24px; font-weight: 700; margin-top: 2px; }
+.chip .d { font-size: 12px; color: var(--ink3); margin-top: 1px; }
+.tone-bad .v { color: #FF6961; } .tone-warn .v { color: var(--orange); } .tone-ok .v { color: var(--green); }
+
+/* body check */
+.rule { display: grid; gap: 8px; margin-top: 12px; }
+.rule .opt { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 14px; background: rgba(255,255,255,.05); border: 1px solid var(--hair); }
+.rule .opt.on { border-color: rgba(255,255,255,.55); background: rgba(255,255,255,.12); }
+.rule .rk { font-weight: 800; font-size: 15px; } .rule .rv { font-size: 13px; color: var(--ink2); line-height: 1.3; } .rule .rv b { color: var(--ink); }
+.ask { margin-top: 12px; padding: 12px; border-radius: 14px; background: rgba(10,132,255,.14); border: 1px solid rgba(10,132,255,.4); font-size: 13px; line-height: 1.4; color: #CFE6FF; }
+.ask b { color: #fff; }
+.fx .fr { display: grid; grid-template-columns: 1fr 120px 44px; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--hair); font-size: 13px; }
+.fx .fr:first-child { border-top: 0; }
+.fx .fl small { display: block; color: var(--ink3); font-size: 11px; margin-top: 1px; }
+.fx .fb { position: relative; height: 10px; background: rgba(255,255,255,.06); border-radius: 5px; }
+.fx .fb::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: rgba(255,255,255,.35); }
+.fx .fb i { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.fx .fv { text-align: right; font-weight: 800; }
+.scen .sr { display: grid; grid-template-columns: 1fr 112px 64px; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--hair); font-size: 14px; }
+.scen .sr:first-child { border-top: 0; }
+.scen .sl small { display: block; color: var(--ink3); font-size: 11px; margin-top: 1px; }
+.scen .sb { position: relative; height: 10px; background: rgba(255,255,255,.06); border-radius: 5px; overflow: hidden; }
+.scen .sb i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
+.scen .sb b { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,.55); }
+.scen .sv { text-align: right; font-weight: 800; font-size: 17px; }
+.scen .sv small { display: block; font-size: 11px; font-weight: 600; color: var(--ink3); }
+.rbar { position: relative; height: 14px; border-radius: 7px; margin: 6px 0 8px; background: linear-gradient(90deg, rgba(255,69,58,.35) 0 34%, rgba(255,214,10,.30) 34% 67%, rgba(48,209,88,.32) 67% 100%); }
+.rbar .band { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.22); border-radius: 7px; }
+.rbar .dot { position: absolute; top: -4px; width: 22px; height: 22px; margin-left: -11px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.rbar-ax { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink3); }
+.empty-note { font-size: 13px; color: var(--ink2); padding: 14px; border: 1px dashed var(--hair); border-radius: 16px; text-align: center; }
+
+/* week strip */
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.day { text-align: center; padding: 8px 2px 10px; border-radius: 16px; background: rgba(255,255,255,.04); border: 1px solid transparent; min-width: 0; }
+.day.today { background: rgba(10,132,255,.22); border-color: rgba(10,132,255,.55); }
+.day .dw { font-size: 11px; font-weight: 600; color: var(--ink3); text-transform: uppercase; }
+.day .dn { font-size: 17px; font-weight: 700; margin: 2px 0 6px; }
+.day .dot { width: 28px; height: 28px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center; }
+.day .dot svg { width: 16px; height: 16px; }
+.day .dl { font-size: 10px; word-break: break-word; hyphens: auto; color: var(--ink2); margin-top: 5px; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.dot.done { background: rgba(48,209,88,.22); color: var(--green); }
+.dot.hard { background: rgba(255,69,58,.24); color: #FF6961; }
+.dot.plan { background: rgba(255,255,255,.08); color: var(--ink2); outline: 1.5px dashed rgba(255,255,255,.28); outline-offset: -2px; }
+.dot.rest { background: rgba(100,210,255,.16); color: #64D2FF; }
+.dot.travel { background: rgba(255,214,10,.16); color: var(--yellow); }
+
+/* workout */
+.wk-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.wk-title { font-size: 24px; font-weight: 700; letter-spacing: -.01em; margin: 10px 0 2px; }
+.wk-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.wk-meta > span { background: var(--glass2); border: 1px solid var(--hair); border-radius: 14px; padding: 8px 10px; font-size: 11px; color: var(--ink2); font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+.wk-meta > span b { font-size: 17px; }
+.wk-meta b { color: var(--ink); font-weight: 700; }
+.wk-chart { position: relative; height: 132px; margin: 14px 0 6px; }
+.steps { list-style: none; margin: 8px 0 0; padding: 0; }
+.steps li { display: grid; grid-template-columns: 6px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--hair); }
+.steps li i { width: 6px; height: 28px; border-radius: 3px; }
+.steps .sn { font-size: 15px; font-weight: 600; } .steps .sd { font-size: 12px; color: var(--ink3); }
+.steps .st { font-size: 15px; font-weight: 700; text-align: right; }
+.cta { display: flex; width: 100%; justify-content: center; align-items: center; gap: 8px; margin-top: 14px; padding: 15px 18px; border-radius: 16px; border: 0;
+  background: linear-gradient(180deg, #2E9BFF, #0A6CF0); color: #fff; font: 700 17px/1 -apple-system, system-ui, sans-serif; text-decoration: none; cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 8px 24px rgba(10,132,255,.45); }
+.cta svg { width: 18px; height: 18px; }
+.gc-howto { margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: var(--glass2); border: 1px solid var(--hair); font-size: 13px; line-height: 1.45; color: var(--ink2); }
+.gc-howto b { color: var(--ink); }
+.gc-howto ol { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.help { font-size: 12px; color: var(--ink3); margin: 10px 2px 0; line-height: 1.4; }
+.cond { display: flex; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 14px; background: rgba(255,214,10,.10); border: 1px solid rgba(255,214,10,.25); font-size: 13px; line-height: 1.35; color: #FFE680; }
+
+/* insights */
+.ins { display: grid; grid-template-columns: 34px 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--hair); }
+.ins:first-of-type { border-top: 0; padding-top: 4px; }
+.ins .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; }
+.ins .ic svg { width: 18px; height: 18px; }
+.ins b { font-size: 15px; display: block; margin-bottom: 2px; }
+.ins p { margin: 0; font-size: 13px; color: var(--ink2); line-height: 1.4; }
+
+/* races */
+.race { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+.race .big { font-size: 34px; min-width: 76px; text-align: center; font-weight: 800; line-height: 1; letter-spacing: -.02em; }
+.race .unit { text-align: center; font-size: 12px; color: var(--ink2); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.race .name { font-size: 16px; font-weight: 700; } .race .when { font-size: 13px; color: var(--ink2); margin-top: 2px; }
+.bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.1); margin-top: 8px; overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--blue), #64D2FF); }
+
+/* plan list */
+.plan li { list-style: none; display: grid; grid-template-columns: 52px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--hair); }
+.plan { margin: 0; padding: 0; } .plan li:first-child { border-top: 0; }
+.plan .pd { font-size: 12px; color: var(--ink3); font-weight: 600; text-transform: uppercase; } .plan .pd b { display: block; font-size: 18px; color: var(--ink); }
+.plan .pl { font-size: 15px; font-weight: 600; } .plan .pt { font-size: 13px; color: var(--ink2); line-height: 1.35; margin-top: 2px; }
+
+/* charts */
+.ch { position: relative; width: 100%; }
+.ch svg { display: block; overflow: visible; }
+.ch .tk { fill: var(--ink3); font-size: 11px; }
+.ch .lab { font-size: 11px; font-weight: 700; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink2); margin: 0 0 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; } .legend i { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.headline { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 10px; flex-wrap: wrap; }
+.headline .v { font-size: 34px; font-weight: 800; letter-spacing: -.02em; }
+.headline .u { font-size: 15px; color: var(--ink2); font-weight: 600; }
+.delta { font-size: 13px; font-weight: 700; padding: 3px 8px; border-radius: 999px; }
+.delta.dn { color: #FF6961; background: rgba(255,69,58,.15); } .delta.up { color: var(--green); background: rgba(48,209,88,.15); }
+.tip { position: absolute; top: 0; left: 0; pointer-events: none; opacity: 0; transition: opacity .12s; z-index: 6; white-space: nowrap;
+  background: rgba(30,32,40,.82); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 8px 10px; font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.tip .h { color: var(--ink2); font-weight: 600; margin-bottom: 3px; } .tip .r { display: flex; align-items: center; gap: 6px; }
+.tip .sw { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+/* lists (history) */
+.list li { list-style: none; display: grid; grid-template-columns: 36px 1fr auto; gap: 12px; align-items: start; padding: 11px 0; border-top: 1px solid var(--hair); }
+.list { margin: 0; padding: 0; } .list li:first-child { border-top: 0; }
+.list .ic { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: rgba(255,255,255,.08); }
+.list .ic svg { width: 18px; height: 18px; }
+.list .t1 { font-size: 15px; font-weight: 600; } .list .t2 { font-size: 12px; color: var(--ink3); margin-top: 2px; }
+.list .rv { text-align: right; } .list .rv b { font-size: 17px; display: block; } .list .rv small { font-size: 11px; color: var(--ink3); }
+.badge { font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 999px; }
+.b-yes { color: var(--green); background: rgba(48,209,88,.16); } .b-no { color: #FF6961; background: rgba(255,69,58,.16); } .b-pend { color: var(--ink2); background: rgba(255,255,255,.1); } .b-part { color: var(--orange); background: rgba(255,159,10,.16); }
+.cmp-impact { font-size: 13px; color: var(--ink2); line-height: 1.4; margin-top: 4px; }
+.zones .zr { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: center; padding: 6px 0; font-size: 13px; }
+.zones .zb { height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-weight: 700; font-size: 12px; color: #fff; }
+.months .mr { display: grid; grid-template-columns: 34px 1fr 54px; gap: 10px; align-items: center; padding: 5px 0; font-size: 13px; }
+.months .mb { height: 10px; border-radius: 5px; background: rgba(255,255,255,.08); overflow: hidden; } .months .mb i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, #0A84FF, #64D2FF); }
+.months .mv { text-align: right; color: var(--ink2); }
+.foot { font-size: 12px; color: var(--ink3); text-align: center; margin-top: 26px; line-height: 1.5; }
+.skel { min-height: 120px; border-radius: 16px; background: linear-gradient(90deg, rgba(255,255,255,.05), rgba(255,255,255,.10), rgba(255,255,255,.05)); }
+@media (prefers-reduced-motion: no-preference) {
+  .ring-arc { animation: ringIn 1.2s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes ringIn { from { stroke-dasharray: 0 999; } }
+  .jx-page { animation: pageIn .35s ease-out both; }
+  @keyframes pageIn { from { opacity: 0; transform: translateY(6px); } }
+}
+/* training pet */
+.pet { display: grid; grid-template-columns: 1fr; gap: 6px; }
+@media (min-width: 620px) { .pet { grid-template-columns: minmax(240px, 46%) 1fr; gap: 16px; align-items: center; } }
+.pet-art { width: 100%; max-width: 340px; margin: 0 auto; }
+.pet-art { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.pet-art svg { width: 100%; height: auto; display: block; overflow: visible; }
+.pet-top { display: flex; justify-content: flex-start; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pet-name { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.pet-badge { font: 700 11px/1 -apple-system, system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; padding: 5px 9px; border-radius: 999px; border: 1px solid currentColor; }
+.pet-badge.s-strong { color: #30D158; } .pet-badge.s-ready { color: #64D2FF; } .pet-badge.s-tired { color: #FFD60A; } .pet-badge.s-exhausted { color: #FF453A; } .pet-badge.s-lazy { color: #FF9F0A; }
+.pet-say { font-size: 15px; line-height: 1.38; margin: 8px 0 10px; }
+.pet-lvl-k { font-size: 12px; color: var(--ink2); margin-bottom: 5px; line-height: 1.3; }
+.pet-bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.12); overflow: hidden; }
+.pet-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #0A84FF, #30D158); transition: width .6s ease; }
+.pet-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.pet-stats span { font-size: 12px; color: var(--ink2); padding: 4px 8px; border-radius: 99px; background: rgba(255,255,255,.08); }
+@media (prefers-reduced-motion: no-preference) {
+  .pet-body, .pet-tail, .pet-wave, .pet-all { transform-box: view-box; }
+  .pet-body { transform-origin: 110px 190px; animation: petBreath 3.4s ease-in-out infinite; }
+  .st-exhausted .pet-body { animation-duration: 5.5s; }
+  .st-strong .pet-all { transform-origin: 110px 190px; animation: petHop 1.6s ease-in-out infinite; }
+  .pet-tail { transform-origin: 142px 174px; animation: petTail 2.6s ease-in-out infinite; }
+  .st-exhausted .pet-tail, .st-lazy .pet-tail { animation-duration: 6s; }
+  .pet-wave { transform-origin: 142px 128px; animation: petWave 1.4s ease-in-out infinite; }
+  .pet-z { animation: petZ 2.4s ease-in-out infinite; opacity: 0; }
+  .pet-drop { animation: petDrop 2.2s ease-in infinite; opacity: 0; }
+  .pet-spark { transform-box: fill-box; transform-origin: center; animation: petSpark 1.8s ease-in-out infinite; }
+  .pet-blink { transform-box: fill-box; transform-origin: center; animation: petBlink 4.5s infinite; }
+  .pet-art.poke svg { animation: petPoke .6s ease-out; transform-origin: 50% 100%; }
+}
+@keyframes petBreath { 50% { transform: scale(1.025, 1.035); } }
+@keyframes petHop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-7px); } }
+@keyframes petTail { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(10deg); } }
+@keyframes petWave { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-24deg); } }
+@keyframes petZ { 0% { opacity: 0; transform: translate(0, 6px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(7px, -10px); } }
+@keyframes petDrop { 0% { opacity: 0; transform: translateY(-4px); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(18px); } }
+@keyframes petSpark { 0%, 100% { opacity: .25; transform: scale(.6); } 50% { opacity: 1; transform: scale(1.1); } }
+@keyframes petBlink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+@keyframes petPoke { 0% { transform: scale(1); } 30% { transform: scale(1.06, .92); } 60% { transform: translateY(-10px) scale(.97, 1.04); } 100% { transform: none; } }
+</style>
+
+<div class="jx">
+ <div class="jx-wrap">
+  <div class="jx-top">
+   <div class="jx-date" id="hdr-date" data-source="brief">—</div>
+   <div class="seg small lang-sw" id="lang-sw" role="group" aria-label="Idioma / Language"><button data-l="es" aria-pressed="true">ES</button><button data-l="en" aria-pressed="false">EN</button></div>
+  </div>
+  <div class="jx-title" id="hdr-title" data-source="brief">Training</div>
+  <p class="jx-sub" id="hdr-sub" data-source="brief">—</p>
+
+  <div class="jx-nav">
+   <div class="seg" role="tablist">
+    <button role="tab" id="tab-today" data-page="today" aria-selected="true">Today</button>
+    <button role="tab" id="tab-trends" data-page="trends" aria-selected="false">Trends</button>
+    <button role="tab" id="tab-history" data-page="history" aria-selected="false">History</button>
+    <button role="tab" id="tab-model" data-page="model" aria-selected="false">Model</button>
+   </div>
+  </div>
+
+  <div class="upd" id="upd" data-source="strava_live">
+   <button type="button" class="ub" id="btn-refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Refresh</span></button>
+   <button type="button" class="ub" id="btn-claude"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg><span id="btn-claude-l">Update with Claude</span></button>
+   <div class="wbox" id="wbox" hidden>
+    <label for="w-rec">Recovery %<input id="w-rec" type="number" inputmode="numeric" min="0" max="100" placeholder="—"></label>
+    <label for="w-hrv">HRV ms<input id="w-hrv" type="number" inputmode="numeric" min="0" max="300" placeholder="—"></label>
+    <label for="w-rhr">Resting HR<input id="w-rhr" type="number" inputmode="numeric" min="20" max="120" placeholder="—"></label>
+    <label for="w-sl">Sleep h<input id="w-sl" type="number" inputmode="decimal" step="0.1" min="0" max="16" placeholder="—"></label>
+   </div>
+   <div class="ust" id="upd-st" role="status"></div>
+  </div>
+
+  <!-- ============ TODAY ============ -->
+  <section class="jx-page" id="today">
+   <div class="g" id="card-ready" data-source="pmc brief">
+    <div class="verdict-pill v-bad" id="pill">—</div>
+    <div class="hero">
+     <div class="rings" id="rings"></div>
+     <div class="ring-legend" id="ring-legend"></div>
+    </div>
+    <div class="chips" id="chips"></div>
+   </div>
+
+   <div class="g pet-card" id="card-pet" data-source="pmc whoop activities brief">
+    <div class="pet">
+     <div class="pet-art" id="pet-art" role="img"></div>
+     <div class="pet-info">
+      <div class="pet-top"><b class="pet-name" id="pet-name">Pedal</b><span class="pet-badge" id="pet-badge">—</span></div>
+      <p class="pet-say" id="pet-say">—</p>
+      <div class="pet-lvl-k" id="pet-lvl-k">—</div>
+      <div class="pet-bar"><i id="pet-bar"></i></div>
+      <div class="pet-stats" id="pet-stats"></div>
+     </div>
+    </div>
+   </div>
+
+   <div class="g" id="card-call" data-source="whoop brief">
+    <h3>Today's call</h3>
+    <p class="cap" id="call-cap">Set by this morning's Whoop recovery.</p>
+    <div class="rule" id="rule"></div>
+    <div class="ask" id="ask" hidden></div>
+   </div>
+
+   <div class="g" id="card-week" data-source="activities brief">
+    <h3>This week</h3>
+    <p class="cap">Done, today and what's planned.</p>
+    <div class="week" id="week"></div>
+   </div>
+
+   <div class="g" id="card-workout" data-source="sessions" style="margin-top:14px;">
+    <div class="jx-date" id="wk-eyebrow">Next ride</div><div class="wk-title" id="wk-title" style="margin-top:2px;">—</div>
+    <div class="wk-meta" id="wk-meta"></div>
+    <div class="wk-head" style="margin-top:14px;">
+     <div class="seg small" id="sess-days" role="group" aria-label="Session day"></div>
+     <div class="seg small" id="mode" role="group" aria-label="Target type">
+      <button data-mode="power" aria-pressed="true">Power</button>
+      <button data-mode="hr" aria-pressed="false">Heart rate</button>
+     </div>
+    </div>
+    <div class="wk-chart" id="wk-chart"></div>
+    <p class="cap" id="wk-purpose" style="margin:0;">—</p>
+    <div class="cond" id="wk-cond" hidden></div>
+    <ul class="steps" id="wk-steps"></ul>
+    <div class="gc-howto" id="gc-howto" data-dev="garmin">
+     <b>Build it in Garmin Connect</b>
+     <ol>
+      <li>In the Garmin Connect app: <b>More › Training &amp; Planning › Workouts › Create Workout › Bike</b>.</li>
+      <li>Add one step per row above, in order. Set each step's duration in time and its target to <b>Power (custom)</b> or <b>Heart rate (custom)</b> with the range shown. Toggle above between Power and Heart rate.</li>
+      <li>Save it, then <b>Send to Device</b>. Your Edge picks it up at the next sync, under Training › Workouts.</li>
+     </ol>
+    </div>
+    <div class="gc-howto" id="hh-howto" data-dev="hammerhead">
+     <b>Build it for Hammerhead Karoo</b>
+     <ol>
+      <li>Open the Hammerhead Dashboard (dashboard.hammerhead.io) or the Hammerhead Companion app and go to <b>Workouts › New workout</b>.</li>
+      <li>Add one step per row above, in order, with its duration and the <b>power</b> or <b>heart rate</b> range shown. Toggle above between Power and Heart rate.</li>
+      <li>Save it. The Karoo syncs it over Wi-Fi or the Companion app; start it from <b>Workouts</b> on the Karoo.</li>
+     </ol>
+    </div>
+   </div>
+
+   <div id="races" data-source="brief" style="margin-top:14px;"></div>
+
+   <div class="jx-cols" style="margin-top:14px;">
+    <div class="g" id="card-why" data-source="brief pmc">
+     <h3>Coach's read</h3>
+     <p class="cap">Why today looks the way it does.</p>
+     <div id="insights"></div>
+    </div>
+    <div class="g" id="card-plan" data-source="brief">
+     <h3>Next days</h3>
+     <p class="cap">Reassessed every morning from your data.</p>
+     <ul class="plan" id="plan"></ul>
+    </div>
+   </div>
+
+   
+  </section>
+
+  <!-- ============ TRENDS ============ -->
+  <section class="jx-page" id="trends" hidden>
+   <div class="g" id="card-pmc" data-source="pmc">
+    <h3>Fitness, fatigue & form</h3>
+    <div class="headline"><span class="v num" id="pmc-v">—</span><span class="u">fitness</span><span class="delta dn" id="pmc-d">—</span><span class="delta up" id="pmc-ramp">—</span></div>
+    <div class="seg small" id="pmc-range" style="margin-bottom:10px;">
+     <button data-r="90" aria-pressed="true">3M</button><button data-r="180" aria-pressed="false">6M</button><button data-r="999" aria-pressed="false">2026</button>
+    </div>
+    <div class="legend"><span><i style="background:var(--blue)"></i>Fitness</span><span><i style="background:var(--pink)"></i>Fatigue</span><span><i style="background:var(--green)"></i>Form +</span><span><i style="background:var(--red)"></i>Form −</span><span><i style="background:rgba(255,255,255,.5)"></i>Dashed = plan</span></div>
+    <div class="ch" id="c-pmc"><div class="skel"></div></div>
+    <p class="cap" style="margin:10px 0 0;">Load is Strava relative effort (heart-rate based), so MTB days count too. Fitness = 42-day average, fatigue = 7-day, form = yesterday's fitness minus fatigue.</p>
+   </div>
+
+   <div class="jx-cols" style="margin-top:14px;">
+    <div class="g" id="card-acwr" data-source="pmc">
+     <h3>Load ratio</h3>
+     <div class="headline"><span class="v num" id="acwr-v">—</span><span class="u">7 days vs 28-day avg</span></div>
+     <div class="ch" id="c-acwr"><div class="skel"></div></div>
+     <p class="cap" style="margin:10px 0 0;">Green band 0.8–1.3 builds fitness safely. Above the red line (1.5) injury and illness risk climbs.</p>
+    </div>
+    <div class="g" id="card-ef" data-source="power">
+     <h3>Aerobic efficiency</h3>
+     <div class="headline"><span class="v num" id="ef-v">—</span><span class="u">W per bpm</span><span class="delta" id="ef-d">—</span></div>
+     <div class="legend"><span><i style="background:var(--s5)"></i>Thursday fast</span><span><i style="background:var(--s20)"></i>Long ride</span><span><i style="background:var(--savg)"></i>Easy ride</span></div>
+     <div class="ch" id="c-ef"><div class="skel"></div></div>
+     <p class="cap" style="margin:10px 0 0;">More watts for the same heart rate = a stronger engine. Compare rides of the same type.</p>
+    </div>
+   </div>
+
+   <div class="g" id="card-pw" data-source="power zones" style="margin-top:14px;">
+    <h3>Power to weight</h3>
+    <div class="headline"><span class="v num" id="pw-v">—</span><span class="u">W/kg best 5 min, latest</span><span class="delta dn" id="pw-d">—</span></div>
+    <div class="legend"><span><i style="background:var(--s5)"></i>Best 5 min</span><span><i style="background:var(--s20)"></i>Best 20 min</span><span><i style="background:var(--savg)"></i>Ride average</span><span><i style="background:rgba(255,255,255,.5)"></i>Working FTP (dashed)</span></div>
+    <div class="ch" id="c-pw"><div class="skel"></div></div>
+    <p class="cap" style="margin:10px 0 0;" id="pw-note">—</p>
+   </div>
+
+   <div class="jx-sec">Body (Whoop)</div>
+   <div class="g" id="card-hrv" data-source="whoop">
+    <h3>Heart rate variability</h3>
+    <div class="headline"><span class="v num" id="hrv-v">—</span><span class="u">ms, 7-day average</span><span class="delta" id="hrv-d">—</span></div>
+    <div class="legend"><span><i style="background:#30D158"></i>Daily HRV</span><span><i style="background:#ffffff"></i>7-day average</span><span><i style="background:rgba(255,255,255,.35)"></i>30-day baseline</span></div>
+    <div class="ch" id="c-hrv"><div class="skel"></div></div>
+    <p class="cap" style="margin:10px 0 0;">Higher than your baseline = your nervous system is absorbing the training. A sustained drop is the clearest fatigue signal you have.</p>
+   </div>
+   <div class="jx-cols" style="margin-top:14px;">
+    <div class="g" id="card-rhr" data-source="whoop">
+     <h3>Resting heart rate</h3>
+     <div class="headline"><span class="v num" id="rhr-v">—</span><span class="u">bpm, 7-day average</span><span class="delta" id="rhr-d">—</span></div>
+     <div class="ch" id="c-rhr"><div class="skel"></div></div>
+     <p class="cap" style="margin:10px 0 0;">Lower is better. A rise of 4+ bpm over your baseline usually means fatigue, illness or bad sleep.</p>
+    </div>
+    <div class="g" id="card-sleep" data-source="whoop">
+     <h3>Sleep</h3>
+     <div class="headline"><span class="v num" id="sl-v">—</span><span class="u">h a night, last 7</span><span class="delta dn" id="sl-d">—</span></div>
+     <div class="legend"><span><i style="background:#7D7AFF"></i>Asleep</span><span><i style="background:rgba(255,255,255,.6)"></i>Whoop's sleep need</span></div>
+     <div class="ch" id="c-sleep"><div class="skel"></div></div>
+    </div>
+   </div>
+   <div class="g" id="card-fx" data-source="whoop_fx" style="margin-top:14px;">
+    <h3>What moves your recovery</h3>
+    <p class="cap">Average next-morning recovery, from 280 days of your Whoop data and journal.</p>
+    <div class="fx" id="fx"></div>
+   </div>
+
+   <div class="g" id="card-month" data-source="monthly" style="margin-top:14px;">
+    <h3>Monthly load</h3>
+    <p class="cap">Relative effort per month. October is partial.</p>
+    <div class="ch" id="c-month"><div class="skel"></div></div>
+   </div>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section class="jx-page" id="history" hidden>
+   <div class="g" id="card-ytd" data-source="ytd_summary">
+    <h3>2026 so far</h3>
+    <div class="chips" id="ytd-chips"></div>
+    <p class="cap" id="ytd-note" style="margin:12px 0 0;">—</p>
+   </div>
+
+   <div class="g" id="card-comp" data-source="compliance">
+    <h3>Did I follow the plan?</h3>
+    <p class="cap">Every morning, yesterday's recommendation vs what you did, and what it means for your goals.</p>
+    <ul class="list" id="comp"></ul>
+   </div>
+
+   <div class="g" id="card-acts" data-source="activities">
+    <h3>Last 15 days</h3>
+    <ul class="list" id="acts"></ul>
+   </div>
+
+   <div class="jx-cols" style="margin-top:14px;">
+    <div class="g" id="card-months" data-source="monthly">
+     <h3>By month</h3><p class="cap">Hours and rest days.</p>
+     <div class="months" id="months"></div>
+    </div>
+    <div class="g" id="card-zones" data-source="zones">
+     <h3>Your zones</h3><p class="cap" id="zone-cap">—</p>
+     <div class="seg small" id="zone-mode" style="margin-bottom:10px;"><button data-z="p" aria-pressed="true">Power</button><button data-z="h" aria-pressed="false">Heart rate</button></div>
+     <div class="zones" id="zones"></div>
+    </div>
+   </div>
+  </section>
+
+
+  <!-- ============ MODEL ============ -->
+  <section class="jx-page" id="model" hidden>
+   <div class="g" id="card-fc" data-source="model">
+    <h3 id="fc-h">Tomorrow's recovery</h3>
+    <div class="headline"><span class="v num" id="fc-v">—</span><span class="u" id="fc-u">predicted</span></div>
+    <div class="rbar" id="fc-bar"><div class="band" id="fc-band"></div><div class="dot" id="fc-dot"></div></div>
+    <div class="rbar-ax"><span>0</span><span>34</span><span>67</span><span>100</span></div>
+    <p class="cap" id="fc-cap" style="margin:12px 0 0;">—</p>
+   </div>
+
+   <div class="g" id="card-scen" data-source="model">
+    <h3 id="scen-h">What the next day does to the morning after</h3>
+    <p class="cap" id="scen-cap">—</p>
+    <div class="scen" id="scen"></div>
+   </div>
+
+   <div class="g" id="card-drv" data-source="model">
+    <h3>What drives your recovery</h3>
+    <p class="cap" id="drv-cap">—</p>
+    <div class="fx" id="drv"></div>
+   </div>
+
+   <div class="g" id="card-resp" data-source="model">
+    <h3>How your body responds to training</h3>
+    <p class="cap" id="resp-cap">—</p>
+    <div class="chips" id="resp-chips"></div>
+    <p class="cap" id="resp-note" style="margin:12px 0 0;">—</p>
+   </div>
+
+   <div class="g" id="card-years" data-source="fitness_hist model">
+    <h3 id="yrs-h">Your training since 2014</h3>
+    <div class="headline"><span class="v num" id="yrs-v">—</span><span class="u">fitness today</span><span class="delta dn" id="yrs-d">—</span></div>
+    <div class="ch" id="c-years"><div class="skel"></div></div>
+    <div class="chips" id="yrs-chips"></div>
+   </div>
+
+   <div class="g" id="card-acc" data-source="model_log model">
+    <h3>Is the model right?</h3>
+    <p class="cap" id="acc-cap">—</p>
+    <div class="ch" id="c-acc"></div>
+   </div>
+  </section>
+
+  <div class="foot">Data from Strava and Whoop · Analysis by Claude · Model retrained every morning at 4:15</div>
+ </div>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const fmt0 = (v) => (v == null || isNaN(v) ? '—' : d3.format(',')(Math.round(v)));
+  const fmt1 = (v) => (v == null || isNaN(v) ? '—' : d3.format('.1f')(v));
+  const fmt2 = (v) => (v == null || isNaN(v) ? '—' : d3.format('.2f')(v));
+  const pd = (s) => new Date(String(s).slice(0, 10) + 'T00:00:00Z');
+  const ES_DF = { '%b %-d': '%-d %b', '%A, %B %-d': '%A %-d de %B', '%A %b %-d': '%A %-d %b', '%a %b %-d': '%a %-d %b', '%a %b %-d, %Y': '%a %-d %b %Y', '%b %-d, %Y': '%-d %b %Y', '%b %Y': '%b %Y' };
+  function uF(s) { return d3.utcFormat(lang() === 'es' && ES_DF[s] ? ES_DF[s] : s); }
+  const dFmt = (d) => uF('%b %-d')(d);
+  const wdFmt = (d) => uF('%a')(d);
+  const mFmt = (m) => uF('%b')(new Date(m + '-01T00:00:00Z'));
+  const DAY = 864e5;
+  function obj(v) { if (typeof v !== 'string') return v; try { return JSON.parse(v); } catch (e) { return v; } }
+  function arr(v) { const x = obj(v); return Array.isArray(x) ? x : []; }
+  function safe(fn) { try { fn(); } catch (e) { console.error(e); } }
+  function el(tag, cls, t) { const e = document.createElement(tag); if (cls) e.className = cls; if (t != null) e.textContent = t; return e; }
+  function txt(id, t) { const e = $(id); if (e) e.textContent = t == null ? '—' : t; }
+  function rawRows(id) { const d = dash.data(id); return d.status === 'ok' && Array.isArray(d.data) ? d.data : null; }
+  function rowsOf(id) { if (id === 'activities') return mergedActs(); if (id === 'pmc') return mergedPmc(); return rawRows(id); }
+  function liveNew() {
+    const live = rawRows('strava_live'); const stored = rawRows('activities') || []; if (!live) return [];
+    const last = stored.reduce((m, a) => (a.date > m ? a.date : m), '');
+    return live.filter((a) => a.date > last || (a.date === last && !stored.some((b) => b.date === a.date && b.name === a.name && Math.abs(+b.moving_min - +a.moving_min) < 1.5)));
+  }
+  function mergedActs() {
+    const stored = rawRows('activities'); const add = liveNew(); if (!stored && !add.length) return null;
+    return (stored || []).concat(add.map((a) => ({ date: a.date, name: a.name, sport: a.sport, moving_min: a.moving_min, distance_km: a.distance_km, relative_effort: a.relative_effort, calories: a.calories, avg_hr: null, max_hr: null, avg_watts: null, live: true })));
+  }
+  function mergedPmc() {
+    const r = rawRows('pmc'); if (!r) return null; const add = liveNew(); if (!add.length) return r;
+    const rows = r.map((d) => ({ ...d })).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const real = rows.filter((d) => !(d.projected === true || d.projected === 'true')); const lastReal = real[real.length - 1]; if (!lastReal) return r;
+    const todayIso = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    const loads = {}; add.slice().sort((a, b) => (a.start < b.start ? -1 : 1)).forEach((a, i, arr2) => { const prev = arr2[i - 1]; if (prev && Math.abs(new Date(a.start) - new Date(prev.start)) < 6e5) return; loads[a.date] = (loads[a.date] || 0) + (+a.relative_effort || 0); });
+    const sameDay = add.filter((a) => a.date === lastReal.date); if (sameDay.length) loads[lastReal.date] = (+lastReal.load || 0) + (loads[lastReal.date] || 0);
+    let i0 = rows.indexOf(lastReal); if (sameDay.length) i0 -= 1;
+    for (let d = new Date(lastReal.date + 'T00:00:00Z'); ; ) { d = new Date(d.getTime() + DAY); const iso = d.toISOString().slice(0, 10); if (iso > todayIso) break; let row = rows.find((x) => x.date === iso); if (!row) { row = { date: iso, load: 0, projected: false }; rows.push(row); } row.load = loads[iso] || 0; row.projected = false; row.live = true; }
+    if (sameDay.length) { lastReal.load = loads[lastReal.date]; lastReal.live = true; }
+    rows.sort((a, b) => (a.date < b.date ? -1 : 1));
+    for (let i = Math.max(1, i0 + 1); i < rows.length; i++) { const p = rows[i - 1], c = rows[i]; const F = +p.fitness, A = +p.fatigue, L = +c.load; c.form = Math.round((F - A) * 10) / 10; c.fitness = Math.round((F + (L - F) / 42) * 10) / 10; c.fatigue = Math.round((A + (L - A) / 7) * 10) / 10; const w7 = rows.slice(Math.max(0, i - 6), i + 1), w28 = rows.slice(Math.max(0, i - 27), i + 1); const s28 = d3.sum(w28, (x) => +x.load) / 4; c.acwr = s28 ? Math.round(d3.sum(w7, (x) => +x.load) / s28 * 100) / 100 : null; }
+    return rows;
+  }
+  function firstOf(id) { const r = rowsOf(id); return r && r[0] ? r[0] : null; }
+  const isProj = (d) => d.projected === true || d.projected === 'true';
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const ICON = {
+    bike: '<circle cx="6" cy="16" r="4"/><circle cx="18" cy="16" r="4"/><path d="M6 16l4-8h5l3 8M10 8l2 8M13 5h3"/>',
+    hiit: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+    gym: '<path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/>',
+    walk: '<circle cx="13" cy="4" r="2"/><path d="M10 22l2-7 3 3v6M8 12l3-5 4 2 2 4M12 15l-2-4"/>',
+    rest: '<path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/>',
+    plane: '<path d="M2 16l20-6-20-6 4 6-4 6zM6 10h8"/>',
+    heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+    gauge: '<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/>',
+    bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+    trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+    flame: '<path d="M12 22c4 0 7-3 7-7 0-5-5-7-5-12-3 2-6 6-6 9-1-1-2-2-2-4-2 2-1 6-1 7 0 4 3 7 7 7z"/>',
+    check: '<path d="M5 12l5 5L20 7"/>'
+  };
+  function icon(name) { const s = document.createElementNS(SVGNS, 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '2'); s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round'); s.innerHTML = ICON[name] || ICON.bike; return s; }
+  function sportIcon(sport, name) { const s = String(sport || '') + ' ' + String(name || ''); if (/HIIT|HighIntensity/i.test(s)) return 'hiit'; if (/Weight|Gym/i.test(s)) return 'gym'; if (/Walk|Hike/i.test(s)) return 'walk'; return 'bike'; }
+
+  // ---------- state ----------
+  let page = 'today', mode = 'power', sessIdx = 0, pmcRange = 90, zoneMode = 'p';
+  const tabs = Array.from(document.querySelectorAll('.jx-nav button'));
+  function show(p) {
+    page = p;
+    tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.page === p)));
+    ['today', 'trends', 'history', 'model'].forEach((id) => { $(id).hidden = id !== p; });
+    dash.setLink(p); render();
+  }
+  tabs.forEach((t) => t.addEventListener('click', () => show(t.dataset.page)));
+  function segBind(id, attr, set) {
+    const btns = Array.from(document.querySelectorAll('#' + id + ' button'));
+    btns.forEach((b) => b.addEventListener('click', () => { btns.forEach((x) => x.setAttribute('aria-pressed', String(x === b))); set(b.dataset[attr]); render(); }));
+  }
+  segBind('mode', 'mode', (v) => { mode = v; });
+  segBind('pmc-range', 'r', (v) => { pmcRange = +v; });
+  segBind('zone-mode', 'z', (v) => { zoneMode = v; });
+
+  // ---------- chart kit ----------
+  function frame(box, h) {
+    box.replaceChildren();
+    const w = Math.max(280, box.clientWidth || 340);
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${w} ${h}`).attr('role', 'img');
+    const tip = d3.select(box).append('div').attr('class', 'tip');
+    return { w, h, svg, tip };
+  }
+  function tipAt(tip, box, x, lines) {
+    tip.html('');
+    lines.forEach((l, i) => { const r = tip.append('div').attr('class', i === 0 ? 'h' : 'r'); if (l.c) r.append('i').attr('class', 'sw').style('background', l.c); r.append('span').text(l.t); });
+    const tw = tip.node().offsetWidth || 130, bw = box.clientWidth || 340;
+    tip.style('transform', `translate(${clamp(x - tw / 2, 0, bw - tw)}px, -8px)`).style('opacity', 1);
+  }
+  function hideTip(tip) { tip.style('opacity', 0); }
+  function yAxis(svg, y, x0, x1, ticks, f) {
+    const g = svg.append('g');
+    y.ticks(ticks).forEach((t) => {
+      g.append('line').attr('x1', x0).attr('x2', x1).attr('y1', y(t)).attr('y2', y(t)).attr('stroke', 'rgba(255,255,255,.08)');
+      g.append('text').attr('class', 'tk').attr('x', x1).attr('y', y(t) - 4).attr('text-anchor', 'end').text((f || d3.format('~s'))(t));
+    });
+  }
+  function xAxisTime(svg, x, y0, w, f) {
+    const n = Math.max(2, Math.floor(w / 80));
+    x.ticks(n).forEach((t) => svg.append('text').attr('class', 'tk').attr('x', x(t)).attr('y', y0 + 16).attr('text-anchor', 'middle').text((f || uF('%b'))(t)));
+  }
+  function gradient(svg, id, color, top) {
+    const lg = svg.append('defs').append('linearGradient').attr('id', id).attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
+    [[0, top || .45], [.6, .08], [1, 0]].forEach(([o, a]) => lg.append('stop').attr('offset', o).attr('stop-color', color).attr('stop-opacity', a));
+    return `url(#${id})`;
+  }
+  function crosshair(svg, box, tip, rows, x, m, h, w, lines) {
+    const rule = svg.append('line').attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'rgba(255,255,255,.35)').attr('opacity', 0);
+    const bis = d3.bisector((d) => d.dt).center;
+    const move = (ev) => { const [px] = d3.pointer(ev); const d = rows[bis(rows, x.invert(px))]; if (!d) return; rule.attr('x1', x(d.dt)).attr('x2', x(d.dt)).attr('opacity', 1); tipAt(tip, box, x(d.dt), lines(d)); };
+    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', w - m.l - m.r).attr('height', h - m.t - m.b).attr('fill', 'transparent').style('touch-action', 'pan-y')
+      .on('pointermove', move).on('pointerdown', move).on('pointerleave', () => { hideTip(tip); rule.attr('opacity', 0); });
+  }
+
+  // ---------- derived ----------
+  function pmcState() {
+    const r = rowsOf('pmc'); if (!r) return null;
+    const rows = r.map((d) => ({ date: d.date, dt: pd(d.date), load: +d.load, fitness: +d.fitness, fatigue: +d.fatigue, form: +d.form, acwr: d.acwr == null || d.acwr === '' ? null : +d.acwr, projected: isProj(d) }));
+    const real = rows.filter((d) => !d.projected);
+    const last = real[real.length - 1];
+    const peak = real.reduce((a, d) => (d.fitness > a.fitness ? d : a), real[0]);
+    const weekAgo = real[real.length - 8] || real[0];
+    return { rows, real, last, peak, weekAgo };
+  }
+
+  // ---------- WHOOP ----------
+  function whoopRows() { const r = rowsOf('whoop'); return r ? r.map((d) => ({ ...d, dt: pd(d.date), recovery: +d.recovery, hrv: +d.hrv, rhr: +d.rhr, hrv_7d: +d.hrv_7d, hrv_30d: +d.hrv_30d, rhr_7d: +d.rhr_7d, rhr_30d: +d.rhr_30d, asleep_h: d.asleep_h == null ? null : +d.asleep_h, need_h: d.need_h == null ? null : +d.need_h })).sort((a, b) => a.dt - b.dt) : null; }
+  const recColor = (v) => (v >= 67 ? '#30D158' : v >= 34 ? '#FFD60A' : '#FF453A');
+
+  function renderCall() {
+    const w = whoopRows(); const b = firstOf('brief'); if (!w || !b) return;
+    const last = w[w.length - 1]; const today = b.generated_at; const isToday = last.date === today;
+    txt('call-cap', isToday ? 'Your recovery this morning: ' + fmt0(last.recovery) + '%.' : 'Waiting for this morning’s Whoop recovery. Latest: ' + fmt0(last.recovery) + '% on ' + dFmt(last.dt) + '.');
+    const opts = [
+      { k: '67%+', c: '#30D158', t: 'Ride 60–75 min in zone 2', d: '165–195 W · HR 135–150', on: isToday && last.recovery >= 67 },
+      { k: '34–66%', c: '#FFD60A', t: '45-min recovery spin', d: '120–145 W · HR under 127', on: isToday && last.recovery >= 34 && last.recovery < 67 },
+      { k: '<34%', c: '#FF453A', t: 'Full rest', d: 'walk, stretch, sleep early', on: isToday && last.recovery < 34 }
+    ];
+    const host = $('rule'); host.replaceChildren();
+    opts.forEach((o) => { const r = el('div', 'opt' + (o.on ? ' on' : '')); const k = el('div', 'rk num', o.k); k.style.color = o.c; r.appendChild(k); const v = el('div', 'rv'); v.appendChild(el('b', null, o.t)); v.appendChild(document.createElement('br')); v.appendChild(document.createTextNode(o.d)); r.appendChild(v); host.appendChild(r); });
+    const ask = $('ask');
+    if (!isToday) { ask.hidden = false; ask.replaceChildren(); ask.appendChild(el('b', null, 'Send me today’s Whoop numbers. ')); ask.appendChild(document.createTextNode('Reply to the morning brief with recovery %, HRV, resting HR and hours slept (or a screenshot) and I’ll lock in today’s session.')); }
+    else ask.hidden = true;
+  }
+
+  function renderHrv() {
+    const all = whoopRows(); if (!all) return; const last = all[all.length - 1];
+    const rows = all.filter((d) => d.dt >= new Date(last.dt.getTime() - 120 * DAY));
+    txt('hrv-v', fmt0(last.hrv_7d)); const dd = last.hrv_7d - last.hrv_30d; const e = $('hrv-d'); e.textContent = (dd >= 0 ? '+' : '') + fmt1(dd) + ' vs 30-day'; e.className = 'delta ' + (dd >= 0 ? 'up' : 'dn');
+    const box = $('c-hrv'); const { w, h, svg, tip } = frame(box, 210); const m = { t: 10, r: 26, b: 22, l: 4 };
+    const x = d3.scaleUtc(d3.extent(rows, (d) => d.dt), [m.l + 4, w - m.r]);
+    const y = d3.scaleLinear([d3.min(rows, (d) => d.hrv) - 4, d3.max(rows, (d) => d.hrv) + 4], [h - m.b, m.t]).nice();
+    yAxis(svg, y, m.l, w, 4, d3.format('d'));
+    svg.append('path').datum(rows).attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d.hrv_30d))).attr('fill', 'none').attr('stroke', 'rgba(255,255,255,.35)').attr('stroke-width', 1.5).attr('stroke-dasharray', '4 4');
+    svg.append('g').selectAll('circle').data(rows).join('circle').attr('cx', (d) => x(d.dt)).attr('cy', (d) => y(d.hrv)).attr('r', 2.6).attr('fill', '#30D158').attr('opacity', .7);
+    svg.append('path').datum(rows).attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d.hrv_7d)).curve(d3.curveMonotoneX)).attr('fill', 'none').attr('stroke', '#fff').attr('stroke-width', 2.2);
+    svg.append('circle').attr('cx', x(last.dt)).attr('cy', y(last.hrv_7d)).attr('r', 4.5).attr('fill', '#fff').attr('stroke', '#05070d').attr('stroke-width', 2);
+    xAxisTime(svg, x, h - m.b, w);
+    crosshair(svg, box, tip, rows, x, m, h, w, (d) => [{ t: dFmt(d.dt) }, { c: '#30D158', t: 'HRV ' + fmt0(d.hrv) + ' ms' }, { c: '#ffffff', t: '7-day ' + fmt1(d.hrv_7d) }, { t: '30-day ' + fmt1(d.hrv_30d) + ' · recovery ' + fmt0(d.recovery) + '%' }]);
+  }
+
+  function renderRhr() {
+    const all = whoopRows(); if (!all) return; const last = all[all.length - 1];
+    const rows = all.filter((d) => d.dt >= new Date(last.dt.getTime() - 120 * DAY));
+    txt('rhr-v', fmt1(last.rhr_7d)); const dd = last.rhr_7d - last.rhr_30d; const e = $('rhr-d'); e.textContent = (dd >= 0 ? '+' : '') + fmt1(dd) + ' vs 30-day'; e.className = 'delta ' + (dd <= 0 ? 'up' : 'dn');
+    const box = $('c-rhr'); const { w, h, svg, tip } = frame(box, 170); const m = { t: 10, r: 26, b: 22, l: 4 };
+    const x = d3.scaleUtc(d3.extent(rows, (d) => d.dt), [m.l + 4, w - m.r]);
+    const y = d3.scaleLinear([d3.min(rows, (d) => d.rhr) - 2, d3.max(rows, (d) => d.rhr) + 2], [h - m.b, m.t]).nice();
+    yAxis(svg, y, m.l, w, 3, d3.format('d'));
+    svg.append('path').datum(rows).attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d.rhr_30d))).attr('fill', 'none').attr('stroke', 'rgba(255,255,255,.35)').attr('stroke-width', 1.5).attr('stroke-dasharray', '4 4');
+    svg.append('g').selectAll('circle').data(rows).join('circle').attr('cx', (d) => x(d.dt)).attr('cy', (d) => y(d.rhr)).attr('r', 2.4).attr('fill', '#FF375F').attr('opacity', .7);
+    svg.append('path').datum(rows).attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d.rhr_7d)).curve(d3.curveMonotoneX)).attr('fill', 'none').attr('stroke', '#FF375F').attr('stroke-width', 2.2);
+    xAxisTime(svg, x, h - m.b, w);
+    crosshair(svg, box, tip, rows, x, m, h, w, (d) => [{ t: dFmt(d.dt) }, { c: '#FF375F', t: 'Resting HR ' + fmt0(d.rhr) }, { t: '7-day ' + fmt1(d.rhr_7d) + ' · 30-day ' + fmt1(d.rhr_30d) }]);
+  }
+
+  function renderSleep() {
+    const all = whoopRows(); if (!all) return; const rows = all.filter((d) => d.asleep_h != null).slice(-30);
+    const l7 = rows.slice(-7); const avg = d3.mean(l7, (d) => d.asleep_h); const need = d3.mean(l7, (d) => d.need_h);
+    txt('sl-v', fmt1(avg)); txt('sl-d', '−' + fmt1(need - avg) + ' h vs need');
+    const box = $('c-sleep'); const { w, h, svg, tip } = frame(box, 170); const m = { t: 10, r: 22, b: 22, l: 4 };
+    const x = d3.scaleBand(rows.map((d) => d.date), [m.l, w - m.r]).padding(.25);
+    const y = d3.scaleLinear([0, Math.max(11, d3.max(rows, (d) => d.need_h || 0))], [h - m.b, m.t]);
+    yAxis(svg, y, m.l, w, 3, (v) => v + 'h');
+    svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', (d) => x(d.date)).attr('width', x.bandwidth()).attr('y', (d) => y(d.asleep_h)).attr('height', (d) => h - m.b - y(d.asleep_h)).attr('rx', Math.min(3, x.bandwidth() / 2))
+      .attr('fill', (d) => (d.asleep_h < 6 ? '#5E5CE6' : '#7D7AFF')).attr('opacity', (d) => (d.asleep_h < 6 ? .65 : 1))
+      .on('pointerenter', (ev, d) => tipAt(tip, box, x(d.date) + x.bandwidth() / 2, [{ t: dFmt(d.dt) }, { c: '#7D7AFF', t: 'Asleep ' + fmt1(d.asleep_h) + ' h' }, { t: 'Need ' + fmt1(d.need_h) + ' h · recovery ' + fmt0(d.recovery) + '%' }])).on('pointerleave', () => hideTip(tip));
+    svg.append('path').datum(rows.filter((d) => d.need_h)).attr('d', d3.line().x((d) => x(d.date) + x.bandwidth() / 2).y((d) => y(d.need_h)).curve(d3.curveMonotoneX)).attr('fill', 'none').attr('stroke', 'rgba(255,255,255,.6)').attr('stroke-width', 1.5).attr('stroke-dasharray', '3 3');
+    [rows[0], rows[rows.length - 1]].forEach((d, i) => svg.append('text').attr('class', 'tk').attr('x', x(d.date) + (i ? x.bandwidth() : 0)).attr('y', h - 6).attr('text-anchor', i ? 'end' : 'start').text(dFmt(d.dt)));
+  }
+
+  function renderFx() {
+    const r = rowsOf('whoop_fx'); if (!r) return; const host = $('fx'); host.replaceChildren();
+    const mx = 20;
+    r.forEach((f) => {
+      const v = +f.rec_delta; const row = el('div', 'fr'); const l = el('div', 'fl', f.label); l.appendChild(el('small', null, f.compare + ' · ' + f.n + ' days')); row.appendChild(l);
+      const bar = el('div', 'fb'); const i = el('i'); const wpct = Math.min(50, Math.abs(v) / mx * 50); i.style.width = wpct + '%'; i.style.left = v < 0 ? (50 - wpct) + '%' : '50%'; i.style.background = v < 0 ? '#FF453A' : '#30D158'; bar.appendChild(i); row.appendChild(bar);
+      const val = el('div', 'fv num', (v > 0 ? '+' : '') + fmt0(v)); val.style.color = v < -5 ? '#FF6961' : v < 0 ? '#FF9F0A' : '#30D158'; row.appendChild(val); host.appendChild(row);
+    });
+  }
+
+  // ---------- TODAY ----------
+  function renderHeader() {
+    const b = firstOf('brief'); if (!b) return;
+    const gd = pd(b.generated_at);
+    txt('hdr-date', uF('%A, %B %-d')(gd));
+    txt('hdr-title', b.verdict);
+    txt('hdr-sub', b.headline);
+    const pill = $('pill'); pill.className = 'verdict-pill v-' + (b.verdict_level || 'warn');
+    const root = document.querySelector('#dash-root .jx'); if (root) { root.classList.remove('mood-ok', 'mood-warn', 'mood-bad'); if (['ok', 'warn', 'bad'].includes(b.verdict_level)) root.classList.add('mood-' + b.verdict_level); }
+    pill.textContent = (b.verdict_level === 'bad' ? 'RECOVER' : b.verdict_level === 'ok' ? 'GOOD TO TRAIN' : 'GO EASY');
+  }
+
+  function renderRings() {
+    const s = pmcState(); if (!s) return;
+    const { last, peak } = s;
+    const fitPct = clamp(last.fitness / peak.fitness, 0, 1);
+    const freshPct = clamp((last.form + 30) / 55, 0, 1);
+    const a = last.acwr;
+    const balPct = a == null ? 0 : a >= 0.8 && a <= 1.3 ? 1 : a > 1.3 ? clamp(1 - (a - 1.3) / 0.7, 0, 1) : clamp(1 - (0.8 - a) / 0.5, 0, 1);
+    const wr = whoopRows(); const wl = wr ? wr[wr.length - 1] : null;
+    const rings = [
+      wl ? { k: 'Recovery', v: clamp(wl.recovery / 100, 0, 1), c: recColor(wl.recovery), val: fmt0(wl.recovery) + '%', sub: 'Whoop · ' + dFmt(wl.dt) } : { k: 'Fitness', v: fitPct, c: '#0A84FF', val: fmt0(last.fitness), sub: Math.round(fitPct * 100) + '% of your ' + uF('%B')(peak.dt) + ' peak' },
+      { k: 'Freshness', v: freshPct, c: '#30D158', val: (last.form > 0 ? '+' : '') + fmt1(last.form), sub: last.form < -10 ? 'carrying fatigue' : last.form > 5 ? 'fresh' : 'neutral' },
+      { k: 'Load balance', v: balPct, c: '#FF9F0A', val: fmt2(a), sub: a > 1.5 ? 'spiking, high risk' : a > 1.3 ? 'above safe band' : a < 0.8 ? 'detraining' : 'in the sweet spot' }
+    ];
+    const host = $('rings'); host.replaceChildren();
+    const svg = d3.select(host).append('svg').attr('viewBox', '0 0 148 148');
+    rings.forEach((r, i) => {
+      const rad = 64 - i * 19, C = 2 * Math.PI * rad;
+      svg.append('circle').attr('cx', 74).attr('cy', 74).attr('r', rad).attr('fill', 'none').attr('stroke', r.c).attr('stroke-opacity', .2).attr('stroke-width', 15);
+      svg.append('circle').attr('class', 'ring-arc').attr('cx', 74).attr('cy', 74).attr('r', rad).attr('fill', 'none').attr('stroke', r.c).attr('stroke-width', 15).attr('stroke-linecap', 'round')
+        .attr('stroke-dasharray', `${Math.max(0.001, r.v * C)} ${C}`).attr('transform', 'rotate(-90 74 74)').style('animation-delay', (i * 0.12) + 's');
+    });
+    const lg = $('ring-legend'); lg.replaceChildren();
+    rings.forEach((r) => { const row = el('div', 'rl'); const dot = el('i'); dot.style.background = r.c; row.appendChild(dot); row.appendChild(el('b', null, r.k)); const v = el('span', 'num', r.val); row.appendChild(v); row.appendChild(el('small', null, r.sub)); lg.appendChild(row); });
+
+    const b = firstOf('brief');
+    const p = rowsOf('power'); const lastP = p ? p.map((d) => ({ ...d, dt: pd(d.date) })).filter((d) => d.ride_type !== 'easy').sort((x, y) => x.dt - y.dt).slice(-1)[0] : null;
+    const chips = $('chips'); chips.replaceChildren();
+    const chip = (k, v, d, tone) => { const c = el('div', 'chip' + (tone ? ' tone-' + tone : '')); c.appendChild(el('div', 'k', k)); c.appendChild(el('div', 'v num', v)); c.appendChild(el('div', 'd', d)); chips.appendChild(c); };
+    if (b) chip('Days without rest', String(b.streak_days_no_rest), 'year high: 20', +b.streak_days_no_rest >= 10 ? 'bad' : 'ok');
+    chip('Fitness', fmt0(last.fitness), Math.round(fitPct * 100) + '% of ' + uF('%b')(peak.dt) + ' peak', null);
+    if (lastP) chip('Best 5 min', fmt2(+lastP.p5_wkg) + ' W/kg', lastP.p5_w + ' W · ' + dFmt(lastP.dt), null);
+    const acts = rowsOf('activities');
+    if (wr) { const l7 = wr.slice(-7); const sl = d3.mean(l7, (d) => d.asleep_h); chip('Sleep, last 7', fmt1(sl) + ' h', 'need \u2248' + fmt0(d3.mean(l7, (d) => d.need_h)) + ' h', sl < 6.5 ? 'bad' : sl < 7.5 ? 'warn' : 'ok'); }
+  }
+
+  function renderWeek() {
+    const b = firstOf('brief'); const acts = rowsOf('activities') || [];
+    if (!b) return;
+    const today = pd(b.generated_at); const plan = arr(b.plan);
+    const host = $('week'); host.replaceChildren();
+    for (let i = -3; i <= 3; i++) {
+      const d = new Date(today.getTime() + i * DAY); const ds = d.toISOString().slice(0, 10);
+      const cell = el('div', 'day' + (i === 0 ? ' today' : ''));
+      cell.appendChild(el('div', 'dw', wdFmt(d)));
+      cell.appendChild(el('div', 'dn num', String(d.getUTCDate())));
+      let cls = 'plan', ic = 'bike', label = '';
+      const doneNow = acts.filter((a) => a.date === ds);
+      if (i < 0 || (i === 0 && doneNow.length)) {
+        const done = doneNow;
+        const re = d3.sum(done, (a) => +a.relative_effort);
+        if (done.length) { cls = re >= 70 ? 'hard' : 'done'; ic = sportIcon(done[0].sport, done[0].name); label = 'RE ' + fmt0(re); } else { cls = 'rest'; ic = 'rest'; label = 'Rest'; }
+      } else {
+        const p = plan.find((x) => x.day === ds) || plan.filter((x) => x.day <= ds).slice(-1)[0];
+        const L = p ? p.label : '';
+        if (/rest/i.test(L)) { cls = 'rest'; ic = 'rest'; } else if (/argentina|travel/i.test(L)) { cls = 'travel'; ic = 'plane'; } else if (/gym/i.test(L)) { ic = 'gym'; } else ic = 'bike';
+        if (i === 0 && cls === 'plan') cls = 'done';
+        label = /easy/i.test(L) ? 'Easy' : /rest/i.test(L) ? 'Rest' : /recovery|spin/i.test(L) ? 'Spin' : /gym/i.test(L) ? 'Gym' : /endurance/i.test(L) ? 'Z2' : /sweet/i.test(L) ? 'Sweet spot' : /argentina|travel/i.test(L) ? 'Travel' : /long/i.test(L) ? 'Long' : L.split(' ')[0];
+      }
+      const dot = el('div', 'dot ' + cls); dot.appendChild(icon(ic)); cell.appendChild(dot);
+      cell.appendChild(el('div', 'dl', label)); host.appendChild(cell);
+    }
+  }
+
+  function renderDevice() {
+    const z = firstOf('zones') || {}; const d = String(z.device || '').toLowerCase();
+    const g = $('gc-howto'), h = $('hh-howto'); if (!g || !h) return;
+    g.hidden = d === 'hammerhead'; h.hidden = d === 'garmin';
+  }
+  function renderWorkout() {
+    safe(renderDevice);
+    const ftp = (firstOf('zones') || {}).ftp_w ? +firstOf('zones').ftp_w : 264;
+    const rows = rowsOf('sessions'); if (!rows || !rows.length) return;
+    if (sessIdx >= rows.length) sessIdx = 0;
+    const days = $('sess-days'); days.replaceChildren();
+    rows.forEach((s, i) => { const bt = el('button', null, wdFmt(pd(s.date)) + ' ' + pd(s.date).getUTCDate()); bt.setAttribute('aria-pressed', String(i === sessIdx)); bt.addEventListener('click', () => { sessIdx = i; render(); }); days.appendChild(bt); });
+    const s = rows[sessIdx]; const steps = arr(s.steps);
+    txt('wk-title', s.title); txt('wk-eyebrow', 'Next ride · ' + uF('%A %b %-d')(pd(s.date)));
+    const meta = $('wk-meta'); meta.replaceChildren();
+    const work = steps.filter((x) => x.int === 'active');
+    const mm = (k, v) => { const sp = el('span'); sp.appendChild(document.createTextNode(k)); sp.appendChild(el('b', 'num', v)); meta.appendChild(sp); };
+    mm('Time', s.duration_min + ' min');
+    const kj = Math.round(d3.sum(steps, (x) => ((x.p[0] + x.p[1]) / 2) * x.min * 60) / 1000);
+    mm('Work', '~' + kj + ' kJ');
+    const ifac = d3.sum(steps, (x) => ((x.p[0] + x.p[1]) / 2) * x.min) / d3.sum(steps, (x) => x.min) / ftp;
+    mm('Intensity', Math.round(ifac * 100) + '%');
+    txt('wk-purpose', s.purpose);
+    const cond = $('wk-cond'); if (s.condition) { cond.hidden = false; cond.textContent = '⚠︎ ' + s.condition; } else cond.hidden = true;
+
+    const colorOf = (st) => {
+      const mid = (st.p[0] + st.p[1]) / 2;
+      if (mid >= 280) return '#FF453A'; if (mid >= 230) return '#FF9F0A'; if (mid >= 200) return '#FFD60A'; if (mid >= 148) return '#30D158'; return '#64D2FF';
+    };
+    // profile
+    const box = $('wk-chart'); const { w, h, svg, tip } = frame(box, 132);
+    const m = { t: 6, r: 2, b: 22, l: 2 };
+    let t0 = 0; const blocks = steps.map((st) => { const o = { ...st, s: t0, e: t0 + st.min }; t0 += st.min; return o; });
+    const x = d3.scaleLinear([0, t0], [m.l, w - m.r]);
+    const val = (st) => (mode === 'power' ? st.p[1] : (st.hr ? st.hr[1] : 175));
+    const lo = mode === 'power' ? 0 : 90;
+    const y = d3.scaleLinear([lo, d3.max(blocks, val) * 1.05], [h - m.b, m.t]);
+    const defs = svg.append('defs');
+    blocks.forEach((b, i) => {
+      const id = 'wkg' + i; const c = colorOf(b);
+      const g = defs.append('linearGradient').attr('id', id).attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
+      g.append('stop').attr('offset', 0).attr('stop-color', c).attr('stop-opacity', .95); g.append('stop').attr('offset', 1).attr('stop-color', c).attr('stop-opacity', .35);
+      svg.append('rect').attr('x', x(b.s) + 1).attr('width', Math.max(2, x(b.e) - x(b.s) - 2)).attr('y', y(val(b))).attr('height', y(lo) - y(val(b))).attr('rx', 5)
+        .attr('fill', `url(#${id})`).attr('opacity', mode === 'hr' && !b.hr ? .45 : 1)
+        .on('pointerenter', () => tipAt(tip, box, x((b.s + b.e) / 2), [{ t: b.name }, { t: b.min + ' min · ' + (mode === 'power' ? b.p[0] + '–' + b.p[1] + ' W' : b.hr ? b.hr[0] + '–' + b.hr[1] + ' bpm' : 'by feel, RPE 8') }]))
+        .on('pointerleave', () => hideTip(tip));
+    });
+    [0, Math.round(t0 / 2), t0].forEach((t, i) => svg.append('text').attr('class', 'tk').attr('x', x(t)).attr('y', h - 3).attr('text-anchor', i === 0 ? 'start' : i === 2 ? 'end' : 'middle').text(t + "'"));
+    if (mode === 'power') { svg.append('line').attr('x1', m.l).attr('x2', w - m.r).attr('y1', y(ftp)).attr('y2', y(ftp)).attr('stroke', 'rgba(255,255,255,.4)').attr('stroke-dasharray', '3 4'); svg.append('text').attr('class', 'tk').attr('x', w - m.r).attr('y', y(ftp) - 4).attr('text-anchor', 'end').text('FTP ' + ftp); }
+
+    const ul = $('wk-steps'); ul.replaceChildren();
+    steps.forEach((st) => {
+      const li = el('li'); const bar = el('i'); bar.style.background = colorOf(st); li.appendChild(bar);
+      const mid = el('div'); mid.appendChild(el('div', 'sn', st.name)); mid.appendChild(el('div', 'sd', st.min + ' min · ' + (mode === 'power' ? (st.hr ? 'HR ' + st.hr[0] + '–' + st.hr[1] : 'HR lags, ride by feel') : st.p[0] + '–' + st.p[1] + ' W'))); li.appendChild(mid);
+      li.appendChild(el('div', 'st num', mode === 'power' ? st.p[0] + '–' + st.p[1] + ' W' : st.hr ? st.hr[0] + '–' + st.hr[1] + ' bpm' : 'RPE 8'));
+      ul.appendChild(li);
+    });
+    const b64 = mode === 'power' ? s.fit_power_b64 : s.fit_hr_b64; const name = mode === 'power' ? s.fit_power_name : s.fit_hr_name;
+  }
+
+  function renderInsights() {
+    const host = $('insights'); host.replaceChildren();
+    const s = pmcState(); const b = firstOf('brief');
+    const items = [];
+    if (s) {
+      const a = s.last.acwr;
+      items.push({ ic: 'gauge', c: a > 1.5 ? '#FF453A' : '#FF9F0A', t: 'Load spiked to ' + fmt2(a), p: 'Last 7 days are ' + fmt2(a) + 'x your 28-day average (a week ago: ' + fmt2(s.weekAgo.acwr) + '). Above 1.5 is where injuries and colds happen.' });
+      const wr = whoopRows();
+      if (wr) { const wl = wr[wr.length - 1]; const l7 = wr.slice(-7);
+        items.push({ ic: 'heart', c: '#30D158', t: 'Your nervous system is coping', p: 'HRV ' + fmt1(wl.hrv_7d) + ' ms (7-day) vs ' + fmt1(wl.hrv_30d) + ' baseline, resting HR ' + fmt0(wl.rhr) + '. That outweighs my earlier read of the falling HIIT heart rate.' });
+        items.push({ ic: 'rest', c: '#7D7AFF', t: 'Sleep is the weak link', p: fmt1(d3.mean(l7, (d) => d.asleep_h)) + ' h a night this week vs a need near ' + fmt0(d3.mean(l7, (d) => d.need_h)) + ' h. Your nights under 6 h cost about 13 recovery points.' }); }
+      items.push({ ic: 'trend', c: '#0A84FF', t: 'Fitness ' + fmt0(s.last.fitness) + ', peak was ' + fmt0(s.peak.fitness), p: 'You are rebuilding after the July break. Recovery days pay back more than extra intensity right now.' });
+    }
+    const p = rowsOf('power');
+    if (p) {
+      const rows = p.map((d) => ({ ...d, dt: pd(d.date) })); const best = rows.reduce((x, d) => (+d.p5_wkg > +x.p5_wkg ? d : x), rows[0]); const last = rows.filter((d) => d.ride_type !== 'easy').sort((x, y) => x.dt - y.dt).slice(-1)[0];
+      items.push({ ic: 'bolt', c: '#D97706', t: '5-min power ' + fmt2(+last.p5_wkg) + ' W/kg', p: 'Best this year: ' + fmt2(+best.p5_wkg) + ' W/kg on ' + dFmt(best.dt) + '. Your top end comes back fastest once you are fresh, so it is the first thing to retest after a break.' });
+    }
+    items.forEach((it) => {
+      const row = el('div', 'ins'); const ic = el('div', 'ic'); ic.style.background = it.c + '2e'; ic.style.color = it.c; ic.appendChild(icon(it.ic)); row.appendChild(ic);
+      const body = el('div'); body.appendChild(el('b', null, it.t)); body.appendChild(el('p', null, it.p)); row.appendChild(body); host.appendChild(row);
+    });
+  }
+
+  function renderPlan() {
+    const b = firstOf('brief'); if (!b) return;
+    const ul = $('plan'); ul.replaceChildren();
+    arr(b.plan).forEach((p) => {
+      const li = el('li'); const d = el('div', 'pd'); d.appendChild(document.createTextNode(wdFmt(pd(p.day)))); d.appendChild(el('b', 'num', String(pd(p.day).getUTCDate()))); li.appendChild(d);
+      const body = el('div'); body.appendChild(el('div', 'pl', p.label)); body.appendChild(el('div', 'pt', p.detail)); li.appendChild(body); ul.appendChild(li);
+    });
+    const host = $('races'); host.replaceChildren(); const card = el('div', 'g'); card.appendChild(el('h3', null, 'Goals')); card.appendChild(el('p', 'cap', 'Countdown and where this block fits.')); host.appendChild(card);
+    const today = pd(b.generated_at);
+    arr(b.races).forEach((r) => {
+      const days = Math.round((pd(r.d) - today) / DAY);
+      const prog = clamp((today - pd(r.from)) / (pd(r.d) - pd(r.from)), 0, 1);
+      const race = el('div', 'race'); race.style.padding = '12px 0'; race.style.borderTop = '1px solid var(--hair)';
+      const l = el('div'); l.appendChild(el('div', 'big num', String(days))); l.appendChild(el('div', 'unit', 'days')); race.appendChild(l);
+      const rr = el('div'); rr.appendChild(el('div', 'name', r.n)); rr.appendChild(el('div', 'when', uF('%a %b %-d, %Y')(pd(r.d)) + ' · ' + r.note));
+      const bar = el('div', 'bar'); const fill = el('i'); fill.style.width = (prog * 100).toFixed(0) + '%'; bar.appendChild(fill); rr.appendChild(bar);
+      race.appendChild(rr); card.appendChild(race);
+    });
+  }
+
+  // ---------- TRENDS ----------
+  function renderPmc() {
+    const s = pmcState(); if (!s) return;
+    txt('pmc-v', fmt0(s.last.fitness));
+    const dd = s.last.fitness - s.peak.fitness; txt('pmc-d', (dd >= 0 ? '+' : '') + fmt0(dd) + ' vs ' + uF('%b')(s.peak.dt) + ' peak');
+    const ramp = s.last.fitness - s.weekAgo.fitness; const rp = $('pmc-ramp'); rp.textContent = (ramp >= 0 ? '+' : '') + fmt1(ramp) + ' this week'; rp.className = 'delta ' + (ramp > 8 ? 'dn' : 'up');
+    const cut = new Date(s.last.dt.getTime() - pmcRange * DAY);
+    const rows = s.rows.filter((d) => d.dt >= cut);
+    const box = $('c-pmc'); const { w, h, svg, tip } = frame(box, 250);
+    const m = { t: 10, r: 26, b: 22, l: 4 };
+    const x = d3.scaleUtc(d3.extent(rows, (d) => d.dt), [m.l, w - m.r]);
+    const y = d3.scaleLinear([Math.min(-40, d3.min(rows, (d) => d.form)), Math.max(d3.max(rows, (d) => Math.max(d.fitness, d.fatigue)), 40)], [h - m.b, m.t]).nice();
+    yAxis(svg, y, m.l, w, 4);
+    const pr = rows.find((d) => d.projected); if (pr) svg.append('rect').attr('x', x(pr.dt)).attr('y', m.t).attr('width', Math.max(0, w - m.r - x(pr.dt))).attr('height', h - m.t - m.b).attr('fill', 'rgba(255,255,255,.05)');
+    const bw = Math.max(1, (w - m.l - m.r) / rows.length - 0.6);
+    svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', (d) => x(d.dt) - bw / 2).attr('width', bw)
+      .attr('y', (d) => y(Math.max(0, d.form))).attr('height', (d) => Math.abs(y(d.form) - y(0))).attr('rx', Math.min(2, bw / 2))
+      .attr('fill', (d) => (d.form >= 0 ? '#30D158' : '#FF453A')).attr('opacity', (d) => (d.projected ? .3 : .55));
+    svg.append('line').attr('x1', m.l).attr('x2', w - m.r).attr('y1', y(0)).attr('y2', y(0)).attr('stroke', 'rgba(255,255,255,.25)');
+    const real = rows.filter((d) => !d.projected), proj = rows.filter((d) => d.projected), lr = real[real.length - 1];
+    const area = d3.area().x((d) => x(d.dt)).y0(y(0)).y1((d) => y(d.fitness));
+    svg.append('path').datum(real).attr('d', area).attr('fill', gradient(svg, 'gFit', '#0A84FF', .5));
+    [['fitness', '#0A84FF', 2.5], ['fatigue', '#FF375F', 1.6]].forEach(([k, c, sw]) => {
+      const line = d3.line().x((d) => x(d.dt)).y((d) => y(d[k]));
+      svg.append('path').datum(real).attr('d', line).attr('fill', 'none').attr('stroke', c).attr('stroke-width', sw).attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round');
+      if (proj.length && lr) svg.append('path').datum([lr, ...proj]).attr('d', line).attr('fill', 'none').attr('stroke', c).attr('stroke-width', sw).attr('stroke-dasharray', '4 4');
+      if (lr) { svg.append('circle').attr('cx', x(lr.dt)).attr('cy', y(lr[k])).attr('r', 4.5).attr('fill', c).attr('stroke', '#05070d').attr('stroke-width', 2); }
+    });
+    // annotate peak
+    if (s.peak.dt >= cut) { svg.append('text').attr('class', 'lab').attr('x', clamp(x(s.peak.dt), m.l + 20, w - 60)).attr('y', y(s.peak.fitness) - 8).attr('text-anchor', 'middle').attr('fill', '#9DCBFF').text('peak ' + fmt0(s.peak.fitness)); }
+    xAxisTime(svg, x, h - m.b, w, pmcRange <= 90 ? uF('%b %-d') : uF('%b'));
+    crosshair(svg, box, tip, rows, x, m, h, w, (d) => [{ t: dFmt(d.dt) + (d.projected ? ' · plan' : '') }, { c: '#0A84FF', t: 'Fitness ' + fmt1(d.fitness) }, { c: '#FF375F', t: 'Fatigue ' + fmt1(d.fatigue) }, { c: d.form >= 0 ? '#30D158' : '#FF453A', t: 'Form ' + fmt1(d.form) }, { t: 'Load ' + fmt0(d.load) }]);
+  }
+
+  function renderAcwr() {
+    const s = pmcState(); if (!s) return;
+    txt('acwr-v', fmt2(s.last.acwr));
+    const rows = s.rows.filter((d) => d.acwr != null && d.dt >= new Date(s.last.dt.getTime() - 120 * DAY));
+    const box = $('c-acwr'); const { w, h, svg, tip } = frame(box, 190);
+    const m = { t: 8, r: 26, b: 22, l: 4 };
+    const x = d3.scaleUtc(d3.extent(rows, (d) => d.dt), [m.l, w - m.r]);
+    const y = d3.scaleLinear([0, Math.max(2.2, d3.max(rows, (d) => d.acwr))], [h - m.b, m.t]);
+    yAxis(svg, y, m.l, w, 4, d3.format('.1f'));
+    svg.append('rect').attr('x', m.l).attr('width', w - m.l - m.r).attr('y', y(1.3)).attr('height', y(0.8) - y(1.3)).attr('fill', 'rgba(48,209,88,.14)');
+    svg.append('line').attr('x1', m.l).attr('x2', w - m.r).attr('y1', y(1.5)).attr('y2', y(1.5)).attr('stroke', '#FF453A').attr('stroke-dasharray', '4 4');
+    svg.append('text').attr('class', 'lab').attr('x', m.l + 4).attr('y', y(1.5) - 5).attr('fill', '#FF6961').text('risk 1.5');
+    const real = rows.filter((d) => !d.projected), proj = rows.filter((d) => d.projected), lr = real[real.length - 1];
+    const line = d3.line().x((d) => x(d.dt)).y((d) => y(d.acwr)).curve(d3.curveMonotoneX);
+    svg.append('path').datum(real).attr('d', line).attr('fill', 'none').attr('stroke', '#FF9F0A').attr('stroke-width', 2.2);
+    if (proj.length) svg.append('path').datum([lr, ...proj]).attr('d', line).attr('fill', 'none').attr('stroke', '#FF9F0A').attr('stroke-width', 2).attr('stroke-dasharray', '4 4');
+    svg.append('circle').attr('cx', x(lr.dt)).attr('cy', y(lr.acwr)).attr('r', 4.5).attr('fill', '#FF9F0A').attr('stroke', '#05070d').attr('stroke-width', 2);
+    xAxisTime(svg, x, h - m.b, w);
+    crosshair(svg, box, tip, rows, x, m, h, w, (d) => [{ t: dFmt(d.dt) + (d.projected ? ' · plan' : '') }, { c: '#FF9F0A', t: 'Ratio ' + fmt2(d.acwr) }]);
+  }
+
+  function powerRows() { const p = rowsOf('power'); return p ? p.map((d) => ({ ...d, dt: pd(d.date), avg_wkg: +d.avg_wkg, p5_wkg: +d.p5_wkg, p20_wkg: +d.p20_wkg, ef: +d.ef, avg_w: +d.avg_w, avg_hr: +d.avg_hr, p5_w: +d.p5_w, p20_w: +d.p20_w })).sort((a, b) => a.dt - b.dt) : null; }
+
+  function renderPower() {
+    const all = powerRows(); if (!all) return; const rows = all.filter((d) => d.ride_type !== 'easy'); const z = firstOf('zones');
+    const last = rows.filter((d) => d.ride_type !== 'easy').slice(-1)[0];
+    const best = rows.reduce((a, d) => (d.p5_wkg > a.p5_wkg ? d : a), rows[0]);
+    txt('pw-v', fmt2(last.p5_wkg)); txt('pw-d', fmt0((last.p5_wkg / best.p5_wkg - 1) * 100) + '% vs ' + dFmt(best.dt));
+    if (z) txt('pw-note', 'W/kg at ' + z.weight_kg + ' kg all year. Working FTP ' + z.ftp_w + ' W (' + fmt2(+z.ftp_wkg) + ' W/kg). Your 20-min bests point to where your FTP sits right now. Easy rides are left out here.');
+    const box = $('c-pw'); const { w, h, svg, tip } = frame(box, 240);
+    const m = { t: 10, r: 30, b: 22, l: 4 };
+    const x = d3.scaleUtc(d3.extent(rows, (d) => d.dt), [m.l + 6, w - m.r]);
+    const y = d3.scaleLinear([1, 4], [h - m.b, m.t]);
+    yAxis(svg, y, m.l, w, 3, d3.format('.1f'));
+    if (z) { const f = +z.ftp_wkg; svg.append('line').attr('x1', m.l).attr('x2', w - m.r).attr('y1', y(f)).attr('y2', y(f)).attr('stroke', 'rgba(255,255,255,.45)').attr('stroke-dasharray', '3 4'); }
+    const series = [['p5_wkg', '#D97706', '5 min'], ['p20_wkg', '#B455F0', '20 min'], ['avg_wkg', '#12A38A', 'avg']];
+    series.forEach(([k, c]) => {
+      const sm = rows;
+      svg.append('path').datum(sm).attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d[k])).curve(d3.curveMonotoneX)).attr('fill', 'none').attr('stroke', c).attr('stroke-width', 2).attr('opacity', .9);
+      svg.append('g').selectAll('circle').data(rows).join('circle').attr('cx', (d) => x(d.dt)).attr('cy', (d) => y(d[k])).attr('r', 3.2).attr('fill', c).attr('stroke', '#05070d').attr('stroke-width', 1.5);
+    });
+    svg.append('text').attr('class', 'lab').attr('x', x(best.dt)).attr('y', y(best.p5_wkg) - 9).attr('text-anchor', 'middle').attr('fill', '#F0A24A').text(fmt2(best.p5_wkg));
+    xAxisTime(svg, x, h - m.b, w);
+    crosshair(svg, box, tip, rows, x, m, h, w, (d) => [{ t: dFmt(d.dt) + ' · ' + ({ 'Thu fast': 'Thursday fast', long: 'Long ride', easy: 'Easy ride' }[d.ride_type] || '') }, { c: '#D97706', t: '5 min ' + fmt2(d.p5_wkg) + ' W/kg (' + d.p5_w + ' W)' }, { c: '#B455F0', t: '20 min ' + fmt2(d.p20_wkg) + ' W/kg (' + d.p20_w + ' W)' }, { c: '#12A38A', t: 'Average ' + fmt2(d.avg_wkg) + ' W/kg' }]);
+  }
+
+  function renderEf() {
+    const rows = powerRows(); if (!rows) return;
+    const thu = rows.filter((d) => d.ride_type === 'Thu fast'); const l = thu[thu.length - 1]; const b = thu.reduce((a, d) => (d.ef > a.ef ? d : a), thu[0]);
+    txt('ef-v', fmt2(l.ef)); const e = $('ef-d'); const pct = (l.ef / b.ef - 1) * 100; e.textContent = fmt0(pct) + '% vs ' + dFmt(b.dt); e.className = 'delta ' + (pct < 0 ? 'dn' : 'up');
+    const box = $('c-ef'); const { w, h, svg, tip } = frame(box, 190); const m = { t: 10, r: 30, b: 22, l: 4 };
+    const x = d3.scaleUtc(d3.extent(rows, (d) => d.dt), [m.l + 6, w - m.r]); const y = d3.scaleLinear([0.85, 1.25], [h - m.b, m.t]);
+    yAxis(svg, y, m.l, w, 4, d3.format('.2f'));
+    [['Thu fast', '#D97706'], ['long', '#B455F0'], ['easy', '#12A38A']].forEach(([t, c]) => {
+      const pts = rows.filter((d) => d.ride_type === t);
+      if (pts.length > 1) svg.append('path').datum(pts).attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d.ef)).curve(d3.curveMonotoneX)).attr('fill', 'none').attr('stroke', c).attr('stroke-width', 1.8).attr('opacity', .75);
+      svg.append('g').selectAll('circle').data(pts).join('circle').attr('cx', (d) => x(d.dt)).attr('cy', (d) => y(d.ef)).attr('r', 4).attr('fill', c).attr('stroke', '#05070d').attr('stroke-width', 1.5);
+    });
+    xAxisTime(svg, x, h - m.b, w);
+    crosshair(svg, box, tip, rows, x, m, h, w, (d) => [{ t: dFmt(d.dt) }, { t: d.avg_w + ' W at ' + d.avg_hr + ' bpm' }, { t: 'Efficiency ' + fmt2(d.ef) }]);
+  }
+
+  function renderMonth() {
+    const mo = rowsOf('monthly'); if (!mo) return;
+    const rows = mo.slice().sort((a, b) => (a.month < b.month ? -1 : 1));
+    const box = $('c-month'); const { w, h, svg, tip } = frame(box, 180); const m = { t: 16, r: 4, b: 22, l: 4 };
+    const x = d3.scaleBand(rows.map((d) => d.month), [m.l, w - m.r]).padding(.28);
+    const y = d3.scaleLinear([0, d3.max(rows, (d) => +d.relative_effort_total)], [h - m.b, m.t]);
+    const gm = svg.append('defs').append('linearGradient').attr('id', 'gMon').attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1); gm.append('stop').attr('offset', 0).attr('stop-color', '#5AB4FF'); gm.append('stop').attr('offset', 1).attr('stop-color', '#0A6CF0'); const grad = 'url(#gMon)';
+    svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', (d) => x(d.month)).attr('width', x.bandwidth()).attr('y', (d) => y(+d.relative_effort_total)).attr('height', (d) => h - m.b - y(+d.relative_effort_total)).attr('rx', Math.min(6, x.bandwidth() / 2))
+      .attr('fill', (d, i) => (i === rows.length - 1 ? 'rgba(255,255,255,.35)' : grad))
+      .on('pointerenter', (ev, d) => tipAt(tip, box, x(d.month) + x.bandwidth() / 2, [{ t: mFmt(d.month) + ' 2026' }, { t: fmt0(+d.hours) + ' h · effort ' + fmt0(+d.relative_effort_total) }, { t: d.training_days + ' training, ' + d.rest_days + ' rest days' }])).on('pointerleave', () => hideTip(tip));
+    rows.forEach((d) => svg.append('text').attr('class', 'tk').attr('x', x(d.month) + x.bandwidth() / 2).attr('y', h - 6).attr('text-anchor', 'middle').text(mFmt(d.month).slice(0, 1)));
+    const pk = rows.reduce((a, d) => (+d.relative_effort_total > +a.relative_effort_total ? d : a), rows[0]);
+    svg.append('text').attr('class', 'lab').attr('x', x(pk.month) + x.bandwidth() / 2).attr('y', y(+pk.relative_effort_total) - 5).attr('text-anchor', 'middle').attr('fill', '#9DCBFF').text(fmt0(+pk.relative_effort_total));
+  }
+
+  // ---------- HISTORY ----------
+  function renderHistory() {
+    const y = firstOf('ytd_summary');
+    if (y) {
+      const c = $('ytd-chips'); c.replaceChildren();
+      [['Training days', y.training_days, 'of ' + y.total_days], ['Rest days', y.rest_days, dFmt(pd(y.period_start)) + ' – ' + dFmt(pd(y.period_end))], ['Longest streak', y.longest_no_rest_streak_days + ' d', dFmt(pd(y.longest_no_rest_streak_start)) + ' – ' + dFmt(pd(y.longest_no_rest_streak_end))], ['Training time', fmt0(+y.total_hours) + ' h', fmt0(+y.total_activities) + ' activities']].forEach(([k, v, d]) => { const ch = el('div', 'chip'); ch.appendChild(el('div', 'k', k)); ch.appendChild(el('div', 'v num', String(v))); ch.appendChild(el('div', 'd', d)); c.appendChild(ch); });
+      txt('ytd-note', y.note);
+    }
+    const comp = rowsOf('compliance');
+    if (comp) { const ul = $('comp'); ul.replaceChildren(); comp.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).forEach((r) => {
+      const li = el('li'); li.dataset.key = r.date; const ic = el('div', 'ic'); ic.appendChild(icon(r.followed === 'yes' ? 'check' : 'gauge')); li.appendChild(ic);
+      const body = el('div'); body.appendChild(el('div', 't1', dFmt(pd(r.date)) + ' · ' + r.recommended)); body.appendChild(el('div', 't2', r.actual)); body.appendChild(el('div', 'cmp-impact', r.impact)); li.appendChild(body);
+      const f = String(r.followed || '').toLowerCase(); li.appendChild(el('span', 'badge ' + (f === 'yes' ? 'b-yes' : f === 'no' ? 'b-no' : f === 'partial' ? 'b-part' : 'b-pend'), f === 'yes' ? 'Followed' : f === 'no' ? 'Skipped' : f === 'partial' ? 'Partly' : 'Pending'));
+      ul.appendChild(li); }); }
+    const acts = rowsOf('activities');
+    if (acts) { const ul = $('acts'); ul.replaceChildren(); acts.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).forEach((r) => {
+      const li = el('li'); li.dataset.key = r.date; const ic = el('div', 'ic'); const kind = sportIcon(r.sport, r.name); ic.style.color = kind === 'hiit' ? '#FF9F0A' : '#30D158'; ic.appendChild(icon(kind)); li.appendChild(ic);
+      const body = el('div'); body.appendChild(el('div', 't1', r.name)); body.appendChild(el('div', 't2', uF('%a %b %-d')(pd(r.date)) + ' · ' + fmt0(+r.moving_min) + ' min' + (+r.distance_km > 0 ? ' · ' + fmt1(+r.distance_km) + ' km' : '') + (r.avg_hr != null ? ' · ' + fmt0(+r.avg_hr) + ' bpm' : ''))); li.appendChild(body);
+      const rv = el('div', 'rv'); const bv = el('b', 'num', fmt0(+r.relative_effort)); if (+r.relative_effort >= 300) bv.style.color = '#FF6961'; else if (+r.relative_effort >= 70) bv.style.color = '#FF9F0A'; rv.appendChild(bv); rv.appendChild(el('small', null, 'effort')); li.appendChild(rv); ul.appendChild(li); }); }
+    const mo = rowsOf('monthly');
+    if (mo) { const host = $('months'); host.replaceChildren(); const mx = d3.max(mo, (d) => +d.hours); mo.slice().sort((a, b) => (a.month < b.month ? -1 : 1)).forEach((d) => { const r = el('div', 'mr'); r.appendChild(el('span', null, mFmt(d.month))); const b = el('div', 'mb'); const i = el('i'); i.style.width = (+d.hours / mx * 100) + '%'; b.appendChild(i); r.appendChild(b); r.appendChild(el('span', 'mv num', fmt0(+d.hours) + ' h · ' + d.rest_days + 'r')); host.appendChild(r); }); }
+    const z = firstOf('zones');
+    if (z) { txt('zone-cap', 'FTP ' + z.ftp_w + ' W · ' + z.weight_kg + ' kg · max HR ' + z.hr_max);
+      const host = $('zones'); host.replaceChildren(); const cols = ['#64D2FF', '#30D158', '#FFD60A', '#FF9F0A', '#FF6B3D', '#FF453A', '#BF5AF2'];
+      const list = zoneMode === 'p' ? arr(z.power_zones).filter((x) => x.label !== 'Sweet spot') : arr(z.heart_rate_zones);
+      const mx = zoneMode === 'p' ? 400 : 200;
+      list.forEach((zz, i) => { const r = el('div', 'zr'); r.appendChild(el('span', null, zz.label)); const bar = el('div', 'zb'); bar.style.background = `linear-gradient(90deg, ${cols[i]}cc, ${cols[i]}66)`; bar.style.width = Math.max(40, ((zz.max == null ? mx : zz.max) / mx) * 100) + '%'; bar.appendChild(el('span', 'num', zz.max == null ? zz.min + '+' : zz.min + '–' + zz.max)); bar.appendChild(el('span', null, zoneMode === 'p' ? 'W' : 'bpm')); r.appendChild(bar); host.appendChild(r); });
+    }
+  }
+
+  // ---------- FIT download (zip, via the downloads capability) ----------
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  function zipOne(name, data) {
+    const nm = new TextEncoder().encode(name), crc = crc32(data), n = data.length;
+    const out = new Uint8Array(30 + nm.length + n + 46 + nm.length + 22); const v = new DataView(out.buffer); let o = 0;
+    const hdr = (sig, central) => { v.setUint32(o, sig, true); o += 4; if (central) { v.setUint16(o, 20, true); o += 2; } v.setUint16(o, 20, true); v.setUint16(o + 2, 0, true); v.setUint16(o + 4, 0, true); v.setUint16(o + 6, 0, true); v.setUint16(o + 8, 0x21, true); v.setUint32(o + 10, crc, true); v.setUint32(o + 14, n, true); v.setUint32(o + 18, n, true); v.setUint16(o + 22, nm.length, true); v.setUint16(o + 24, 0, true); o += 26; };
+    hdr(0x04034b50, false); out.set(nm, o); o += nm.length; out.set(data, o); o += n;
+    const cd = o; hdr(0x02014b50, true); v.setUint16(o, 0, true); v.setUint16(o + 2, 0, true); v.setUint16(o + 4, 0, true); v.setUint32(o + 6, 0, true); v.setUint32(o + 10, 0, true); o += 14; out.set(nm, o); o += nm.length;
+    const cdLen = o - cd; v.setUint32(o, 0x06054b50, true); v.setUint16(o + 4, 0, true); v.setUint16(o + 6, 0, true); v.setUint16(o + 8, 1, true); v.setUint16(o + 10, 1, true); v.setUint32(o + 12, cdLen, true); v.setUint32(o + 16, cd, true); v.setUint16(o + 20, 0, true);
+    return out;
+  }
+  let dlNs;
+  async function saveFit() {
+    const a = $('wk-dl'); const b64 = a.dataset.b64, name = a.dataset.name; const msg = $('wk-dl-msg');
+    if (!b64) return;
+    if (dlNs === undefined) dlNs = window.claude && claude.use ? await claude.use('downloads') : null;
+    if (!dlNs) { msg.textContent = 'Saving files isn\'t available in this view. The .FIT files are attached to each morning brief in the chat.'; return; }
+    const bin = atob(b64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    try { await dlNs.save({ filename: name.replace(/\.fit$/i, '') + '.zip', data: zipOne(name, bytes) }); msg.textContent = 'Shared. On your computer, unzip it and copy the .FIT into Garmin/NewFiles on the Edge 840 (USB).'; }
+    catch (e) { const c = e && e.code; msg.textContent = c === 'declined' ? 'Share cancelled.' : c === 'rate_limited' ? 'A share prompt is already open.' : 'Couldn\'t save here. The .FIT files are attached to each morning brief in the chat.'; }
+  }
+
+
+  // ---------- refresh + update with Claude ----------
+  const RR_TRIGGER = 'trig_011YA9LHVpke9CCnJTstvKaV';
+  function localIso(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); }
+  function renderUpd() {
+    const want = localIso(new Date(Date.now() - 3 * DAY)) + 'T00:00:00'; if (!sinceSet) { sinceSet = true; if ((dash.params().since || '') < want) { dash.setParams({ since: want }); return; } }
+    const st = $('upd-st'); const d = dash.data('strava_live'); const n = liveNew().length;
+    $('btn-refresh').setAttribute('aria-busy', String(d.status === 'loading' || !!d.refreshing));
+    if (armed) return;
+    if (d.status === 'ok') st.textContent = n ? n + ' new ' + (n === 1 ? 'activity' : 'activities') + ' from Strava added since this morning’s update.' : 'Up to date with Strava.';
+    else if (d.status === 'connect' || d.status === 'declined') st.textContent = 'Connect Strava to refresh from here.';
+    else if (d.status === 'error') st.textContent = 'Strava didn’t answer. Try again in a minute.';
+  }
+  let armed = false, sinceSet = false;
+  $('btn-refresh').addEventListener('click', () => { const since = localIso(new Date(Date.now() - 3 * DAY)) + 'T00:00:00'; if (dash.params().since !== since) dash.setParams({ since }); else dash.refresh('strava_live'); });
+  $('btn-claude').addEventListener('click', async () => {
+    const st = $('upd-st'), btn = $('btn-claude');
+    if (!armed) { armed = true; btn.classList.add('arm'); $('btn-claude-l').textContent = 'Tap again to start'; $('wbox').hidden = false; st.textContent = 'Claude re-runs your full morning update (about 10 minutes). Add today’s Whoop numbers if you have them.'; return; }
+    armed = false; btn.classList.remove('arm'); $('btn-claude-l').textContent = 'Update with Claude'; btn.setAttribute('aria-busy', 'true');
+    const v = (id) => { const x = $(id).value.trim(); return x === '' ? null : x; };
+    const w = { rec: v('w-rec'), hrv: v('w-hrv'), rhr: v('w-rhr'), sl: v('w-sl') };
+    const wtxt = (w.rec || w.hrv || w.rhr || w.sl) ? ' Today’s Whoop from the dashboard: recovery ' + (w.rec ?? '?') + '%, HRV ' + (w.hrv ?? '?') + ' ms, resting HR ' + (w.rhr ?? '?') + ' bpm, sleep ' + (w.sl ?? '?') + ' h. Record them as today’s Whoop numbers (as in WHEN HE REPLIES WITH TODAY’S WHOOP NUMBERS) before deciding.' : '';
+    const text = 'MANUAL UPDATE from the dashboard at ' + new Date().toString().slice(0, 21) + '. This is not the scheduled time: run the MORNING STEPS for today with everything Strava has right now (including today’s activities), retrain the model, update every dataset, then reply as usual.' + wtxt;
+    try {
+      const mcp = window.claude && claude.use ? await claude.use('mcp') : null;
+      if (!mcp) throw { code: 'unavailable' };
+      await mcp.callTool('Claude Code Remote', 'fire_trigger', { trigger_id: RR_TRIGGER, text });
+      st.textContent = 'Started ' + new Date().toTimeString().slice(0, 5) + '. You’ll get a notification when Claude finishes (about 10 minutes); this page updates itself.';
+      $('wbox').hidden = true; ['w-rec', 'w-hrv', 'w-rhr', 'w-sl'].forEach((id) => { $(id).value = ''; });
+    } catch (e) {
+      const c = e && e.code;
+      st.textContent = c === 'declined' || c === 'consent_required' || c === 'not_granted' ? 'Allow the Claude Code Remote connection for this page to start an update from here.' : c === 'rate_limited' ? 'Too many requests. Try again in a few minutes.' : 'Couldn’t start the update from here (' + (c || 'error') + '). Reply “update” to this morning’s brief instead.';
+    } finally { btn.setAttribute('aria-busy', 'false'); }
+  });
+  dash.loader('strava_live', {
+    description: 'Strava’s list of activities as one row per activity',
+    fn: ({ answer }) => {
+      const a = typeof answer === 'string' ? JSON.parse(answer) : answer; const list = (a && a.activities) || [];
+      return list.map((x) => ({ id: String(x.id), start: x.start_local, date: String(x.start_local).slice(0, 10), name: x.name, sport: x.sport_type, moving_min: Math.round(((x.summary && x.summary.moving_time) || 0) / 6) / 10, distance_km: Math.round(((x.summary && x.summary.distance) || 0) / 10) / 100, relative_effort: x.summary && x.summary.relative_effort != null ? x.summary.relative_effort : null, calories: x.summary ? (x.summary.total_calories ?? null) : null }));
+    }
+  });
+
+  // ---------- MODEL ----------
+  function modelRow() { const m = firstOf('model'); return m; }
+  function renderForecast() {
+    const m = modelRow(); if (!m) return; const R = obj(m.recovery) || {}; const fc = obj(R.forecast);
+    if (!fc || fc.recovery == null) { txt('fc-v', '—'); txt('fc-cap', 'No forecast yet: send this morning\'s Whoop numbers first.'); return; }
+    txt('fc-h', 'Recovery forecast · ' + uF('%A %b %-d')(pd(fc.date)));
+    const v = +fc.recovery; $('fc-v').textContent = v + '%'; $('fc-v').style.color = recColor(v);
+    txt('fc-u', 'likely ' + fc.low + '–' + fc.high + '%');
+    const band = $('fc-band'); band.style.left = fc.low + '%'; band.style.width = (fc.high - fc.low) + '%';
+    const dot = $('fc-dot'); dot.style.left = v + '%'; dot.style.background = recColor(v);
+    $('fc-bar').setAttribute('aria-label', 'Predicted recovery ' + v + ' percent, likely range ' + fc.low + ' to ' + fc.high);
+    txt('fc-cap', 'After today\'s load of ' + fc.based_on_load + ' relative effort and a ' + fmt1(+fc.sleep_assumed) + ' h night (your recent average). Sleep 8 h and it rises to about ' + fc.recovery_if_8h + '%.');
+  }
+  function renderScen() {
+    const m = modelRow(); if (!m) return; const R = obj(m.recovery) || {}; const sc = arr(R.scenarios); const host = $('scen'); host.replaceChildren();
+    if (!sc.length) return;
+    const fc = obj(R.forecast) || {};
+    if (R.scenario_for && R.scenario_wake) {
+      txt('scen-h', 'What ' + uF('%A')(pd(R.scenario_for)) + ' does to ' + uF('%A')(pd(R.scenario_wake)) + ' morning');
+      txt('scen-cap', 'Predicted recovery on ' + uF('%b %-d')(pd(R.scenario_wake)) + ' for each option, at your usual ' + fmt1(+fc.sleep_assumed) + ' h of sleep. The thin line shows 8 h of sleep.');
+    }
+    sc.forEach((s) => {
+      const v = +s.recovery, v8 = +s.recovery_8h; const row = el('div', 'sr');
+      const l = el('div', 'sl', s.day); l.appendChild(el('small', null, 'relative effort ~' + s.load)); row.appendChild(l);
+      const bar = el('div', 'sb'); const i = el('i'); i.style.width = v + '%'; i.style.background = recColor(v); bar.appendChild(i); const b8 = el('b'); b8.style.left = v8 + '%'; bar.appendChild(b8); row.appendChild(bar);
+      const val = el('div', 'sv num', v + '%'); val.style.color = recColor(v); val.appendChild(el('small', null, '8 h: ' + v8 + '%')); row.appendChild(val);
+      host.appendChild(row);
+    });
+  }
+  function renderDrivers() {
+    const m = modelRow(); if (!m) return; const R = obj(m.recovery) || {}; const host = $('drv'); host.replaceChildren();
+    txt('drv-cap', 'Learned from ' + R.n_days + ' mornings of Whoop and Strava since ' + uF('%b %Y')(pd(R.since)) + '. Each bar is the change in next-morning recovery, holding everything else equal. Gray bars are too small to trust yet (journal answers need more data).');
+    const show = ['load_yday', 'sleep_h', 'load_2days', 'recovery_yday', 'alcohol', 'added_sugar', 'late_meal'];
+    const eff = arr(R.effects).filter((e) => show.includes(e.factor)); const mx = 15;
+    eff.forEach((e) => {
+      const v = +e.points; const weak = Math.abs(v) < (['alcohol', 'added_sugar', 'late_meal'].includes(e.factor) ? 5 : 3); const row = el('div', 'fr'); row.appendChild(el('div', 'fl', e.label));
+      const bar = el('div', 'fb'); const i = el('i'); const w = Math.min(50, Math.abs(v) / mx * 50); i.style.width = w + '%'; i.style.left = v < 0 ? (50 - w) + '%' : '50%'; i.style.background = weak ? 'rgba(235,235,245,.35)' : v < 0 ? '#FF453A' : '#30D158'; bar.appendChild(i); row.appendChild(bar);
+      const val = el('div', 'fv num', (v > 0 ? '+' : '') + fmt1(v)); val.style.color = weak ? 'var(--ink3)' : v < 0 ? '#FF6961' : '#30D158'; row.appendChild(val); host.appendChild(row);
+    });
+  }
+  function renderResp() {
+    const m = modelRow(); if (!m) return; const F = obj(m.fitness) || {};
+    txt('resp-cap', 'Fitted to ' + F.n_markers + ' of your 20-minute power efforts since ' + uF('%Y')(pd(F.since)) + ' (Zwift and road), against 12 years of training load.');
+    const c = $('resp-chips'); c.replaceChildren();
+    [['Fitness builds over', F.tau_fitness + ' days', 'standard model: 42'], ['Fatigue fades over', F.tau_fatigue + ' days', 'standard model: 7'], ['A session pays off', 'day ' + F.peak_day, 'when its benefit peaks'], ['+10 fitness', '+' + fmt1(+F.watts_per_10_fitness) + ' W', 'on your 20-min power']]
+      .forEach(([k, v, d]) => { const ch = el('div', 'chip'); ch.appendChild(el('div', 'k', k)); ch.appendChild(el('div', 'v num', v)); ch.appendChild(el('div', 'd', d)); c.appendChild(ch); });
+    txt('resp-note', 'Your fatigue lingers much longer than the textbook 7 days, so hard blocks keep your power down for 2 to 3 weeks and your best form arrives about ' + F.peak_day + ' days after the work. Taper 10 to 14 days before key events. Fit quality is moderate (R² ' + fmt2(+F.r2) + ', ±' + fmt0(+F.rmse_w) + ' W), so use it as a guide, not a law.');
+  }
+  function renderYears() {
+    const r = rowsOf('fitness_hist'); const m = modelRow(); if (!r || !m) return; const H = obj(m.history) || {}; const P = obj(H.all_time_peak) || {};
+    const rows = r.map((d) => ({ dt: pd(d.date), date: d.date, f: +d.fitness })).sort((a, b) => a.dt - b.dt);
+    const last = rows[rows.length - 1];
+    txt('yrs-h', 'Your training since ' + rows[0].date.slice(0, 4)); txt('yrs-v', fmt0(last.f));
+    txt('yrs-d', fmt0(last.f / +P.peak_fitness * 100) + '% of your ' + P.year + ' peak');
+    const box = $('c-years'); const { w, h, svg, tip } = frame(box, 200); const mg = { l: 6, r: 30, t: 10, b: 22 };
+    const x = d3.scaleUtc().domain(d3.extent(rows, (d) => d.dt)).range([mg.l, w - mg.r]);
+    const y = d3.scaleLinear().domain([0, d3.max(rows, (d) => d.f) * 1.08]).nice().range([h - mg.b, mg.t]);
+    yAxis(svg, y, mg.l, w, 4, d3.format('d'));
+    svg.append('path').datum(rows).attr('fill', gradient(svg, 'gy', '#0A84FF', .5)).attr('d', d3.area().x((d) => x(d.dt)).y0(h - mg.b).y1((d) => y(d.f)).curve(d3.curveMonotoneX));
+    svg.append('path').datum(rows).attr('fill', 'none').attr('stroke', '#0A84FF').attr('stroke-width', 2).attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d.f)).curve(d3.curveMonotoneX));
+    const n = Math.max(2, Math.floor(w / 70)); x.ticks(d3.utcYear.every(Math.ceil(13 / n))).forEach((t) => svg.append('text').attr('class', 'tk').attr('x', x(t)).attr('y', h - mg.b + 16).attr('text-anchor', 'middle').text(uF("'%y")(t)));
+    const pk = rows.reduce((a, d) => (d.f > a.f ? d : a), rows[0]);
+    svg.append('circle').attr('cx', x(pk.dt)).attr('cy', y(pk.f)).attr('r', 4).attr('fill', '#fff');
+    svg.append('text').attr('class', 'tk').attr('x', x(pk.dt)).attr('y', y(pk.f) - 8).attr('text-anchor', 'middle').style('fill', '#fff').text('peak ' + fmt0(pk.f));
+    svg.append('circle').attr('cx', x(last.dt)).attr('cy', y(last.f)).attr('r', 4.5).attr('fill', '#FF9F0A').attr('stroke', '#000');
+    crosshair(svg, box, tip, rows, x, mg, h, w, (d) => [{ t: uF('%b %-d, %Y')(d.dt) }, { t: 'Fitness ' + fmt0(d.f), c: '#0A84FF' }]);
+    const yrs = arr(H.years).filter((Y) => +Y.year < 2026);
+    const avgPeak = d3.mean(yrs, (Y) => +Y.peak_fitness);
+    const c = $('yrs-chips'); c.replaceChildren();
+    [['All-time peak', fmt0(+P.peak_fitness), uF('%b %Y')(pd(P.peak_date))], ['Typical yearly peak', fmt0(avgPeak), 'average ' + yrs[0].year + '–' + yrs[yrs.length - 1].year], ['Fastest build', '+' + fmt0(+H.max_6wk_ramp), 'in 6 weeks, ' + uF('%b %Y')(pd(H.max_ramp_end))], ['Breaks of 2+ weeks', fmt0(+H.long_breaks), 'since ' + rows[0].date.slice(0, 4)]]
+      .forEach(([k, v, d]) => { const ch = el('div', 'chip'); ch.appendChild(el('div', 'k', k)); ch.appendChild(el('div', 'v num', v)); ch.appendChild(el('div', 'd', d)); c.appendChild(ch); });
+  }
+  function renderAcc() {
+    const m = modelRow(); if (!m) return; const R = obj(m.recovery) || {}; const lg = (rowsOf('model_log') || []).map((d) => ({ date: d.date, dt: pd(d.date), p: d.predicted == null || d.predicted === '' ? null : +d.predicted, a: d.actual == null || d.actual === '' ? null : +d.actual, lo: +d.low, hi: +d.high })).filter((d) => d.p != null).sort((a, b) => a.dt - b.dt);
+    const done = lg.filter((d) => d.a != null);
+    txt('acc-cap', 'Tested on past data, the model misses by ' + fmt1(+R.mae) + ' points on average, against ' + fmt1(+R.mae_naive) + ' for simply assuming today repeats yesterday. Live tracking: ' + (done.length ? done.length + ' mornings, average miss ' + fmt1(d3.mean(done, (d) => Math.abs(d.a - d.p))) + ' points.' : 'starts with the first forecast below.'));
+    const box = $('c-acc'); box.replaceChildren();
+    if (lg.length < 2) { const nx = lg[lg.length - 1]; box.appendChild(el('div', 'empty-note', nx ? 'First check: ' + uF('%A %b %-d')(nx.dt) + ', predicted ' + nx.p + '% (' + nx.lo + '–' + nx.hi + '%). Each morning the real Whoop number is plotted against the forecast.' : 'Tracking starts with the next forecast.')); return; }
+    const { w, h, svg, tip } = frame(box, 180); const mg = { l: 6, r: 30, t: 10, b: 22 };
+    const x = d3.scaleUtc().domain(d3.extent(lg, (d) => d.dt)).range([mg.l + 6, w - mg.r - 6]); const y = d3.scaleLinear().domain([0, 100]).range([h - mg.b, mg.t]);
+    yAxis(svg, y, mg.l, w, 4, d3.format('d')); xAxisTime(svg, x, h - mg.b, w, uF('%b %-d'));
+    svg.append('path').datum(lg).attr('fill', 'rgba(10,132,255,.18)').attr('d', d3.area().x((d) => x(d.dt)).y0((d) => y(d.lo)).y1((d) => y(d.hi)));
+    svg.append('path').datum(lg).attr('fill', 'none').attr('stroke', '#0A84FF').attr('stroke-width', 2).attr('stroke-dasharray', '4 3').attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d.p)));
+    svg.selectAll('.a').data(done).enter().append('circle').attr('cx', (d) => x(d.dt)).attr('cy', (d) => y(d.a)).attr('r', 4.5).attr('fill', (d) => recColor(d.a)).attr('stroke', '#000');
+    crosshair(svg, box, tip, lg, x, mg, h, w, (d) => [{ t: uF('%a %b %-d')(d.dt) }, { t: 'Predicted ' + d.p + '%', c: '#0A84FF' }, { t: d.a == null ? 'Actual: pending' : 'Whoop ' + d.a + '%', c: d.a == null ? null : recColor(d.a) }]);
+  }
+
+  // ---------- training pet (a cat that mirrors fitness, fatigue and idleness, dressed for the rider's main sport) ----------
+  const L = (en, es) => (lang() === 'es' ? es : en);
+  function sportFam(s) {
+    s = String(s || '');
+    if (/^(MountainBikeRide|EMountainBikeRide|MTB)$/.test(s)) return 'mtb';
+    if (/Ride|Velomobile|Handcycle|Cycling/.test(s)) return 'road';
+    if (/Run/.test(s)) return 'run';
+    if (/Swim/.test(s)) return 'swim';
+    if (/^(Walk|Hike)$/.test(s)) return 'walk';
+    if (/WeightTraining|HIIT|HighIntensity|Workout|Crossfit|Elliptical|StairStepper|Rowing|Yoga|Pilates|Gym/.test(s)) return 'gym';
+    return null;
+  }
+  function mainSport() {
+    const z = firstOf('zones'); const forced = z && z.main_sport ? String(z.main_sport) : '';
+    if (/^(bike|road|mtb|run|swim|gym|walk)$/.test(forced)) return { sp: forced === 'road' || forced === 'mtb' ? 'bike' : forced, mtb: forced === 'mtb' };
+    const cnt = {}; const add = (sp, n) => { const f = sportFam(sp); if (f) cnt[f] = (cnt[f] || 0) + n; };
+    const y = firstOf('ytd_summary'); const sc = y ? obj(y.sport_counts) : null;
+    if (sc && typeof sc === 'object' && Object.keys(sc).length) Object.entries(sc).forEach(([k, v]) => add(k, +v || 0));
+    else (rowsOf('activities') || []).forEach((a) => add(a.sport, 1));
+    const fams = { bike: (cnt.road || 0) + (cnt.mtb || 0), run: cnt.run || 0, swim: cnt.swim || 0, gym: cnt.gym || 0 };
+    let sp = 'bike', bv = 0; Object.entries(fams).forEach(([k, v]) => { if (v > bv) { sp = k; bv = v; } });
+    if (bv === 0 && cnt.walk) sp = 'walk';
+    return { sp, mtb: (cnt.mtb || 0) > (cnt.road || 0) };
+  }
+  function petState() {
+    const s = pmcState(); if (!s || !s.last) return null;
+    const last = s.last; const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); const tdt = pd(todayIso);
+    const yr = s.real.filter((d) => d.dt >= new Date(last.dt - 365 * DAY)); const peakY = yr.reduce((m, d) => Math.max(m, d.fitness || 0), 1);
+    const wr = whoopRows(); const wl = wr && wr.length ? wr[wr.length - 1] : null; const rec = wl && (tdt - wl.dt) <= 2 * DAY && !isNaN(wl.recovery) ? wl.recovery : null;
+    const acts = rowsOf('activities') || [];
+    const train = acts.filter((a) => { const f = sportFam(a.sport); return f && f !== 'walk' && ((+a.relative_effort || 0) >= 8 || (+a.moving_min || 0) >= 25); });
+    const lastTrain = train.reduce((m, a) => (a.date > m ? a.date : m), '');
+    const idle = lastTrain ? Math.max(0, Math.round((tdt - pd(lastTrain)) / DAY)) : 15;
+    const b = firstOf('brief'); let streak = b ? +b.streak_days_no_rest || 0 : 0; if (idle >= 2) streak = 0;
+    const plan0 = b ? arr(b.plan)[0] : null; const restPlanned = plan0 && plan0.day === todayIso && /rest|argentina|travel|off/i.test(String(plan0.label || ''));
+    const form = +last.form, acwr = last.acwr;
+    let pts = 0;
+    if (rec != null) pts += rec < 34 ? 3 : rec < 67 ? 1 : 0;
+    pts += form < -20 ? 2 : form < -10 ? 1 : 0;
+    if (acwr != null) pts += acwr > 1.5 ? 2 : acwr > 1.3 ? 1 : 0;
+    pts += streak >= 14 ? 2 : streak >= 10 ? 1 : 0;
+    let st;
+    if (idle >= 3 && (rec == null || rec >= 34)) st = 'lazy';
+    else if (pts >= 4) st = 'exhausted';
+    else if (pts >= 2) st = 'tired';
+    else if (form >= 0 && (rec == null || rec >= 67)) st = 'strong';
+    else st = 'ready';
+    const fat = st === 'lazy' ? clamp(idle - 2, 1, 5) : 0;
+    return { st, fat, idle, streak, rec, form, acwr, fitness: +last.fitness, lvl: clamp(last.fitness / peakY, 0, 1), restPlanned, ...mainSport() };
+  }
+  function petSvg(P) {
+    const { st, fat, sp, mtb } = P; const F = '#8A95A3', FD = '#6B7683', FL = '#D9DEE6', PK = '#F4A6B8', INK = '#1d1d1f';
+    const jer = { bike: '#0A84FF', run: '#FF375F', swim: null, gym: '#30D158', walk: '#FF9F0A' }[sp];
+    const lazy = st === 'lazy', ex = st === 'exhausted', tired = st === 'tired', strong = st === 'strong', ready = st === 'ready';
+    const bw = 42 + fat * 7, bh = 40 + fat * 2.5, by = 148 - fat; let s = '';
+    s += `<ellipse cx="${lazy ? 70 : 90}" cy="191" rx="${lazy ? 140 : 120}" ry="7" fill="rgba(0,0,0,.25)"/>`;
+    // left-side prop: the sport, or a TV when lazy
+    if (lazy) s += `<g><rect x="-58" y="128" width="66" height="44" rx="6" fill="#2c2c2e" stroke="#48484a" stroke-width="2"/><rect x="-52" y="134" width="54" height="32" rx="3" fill="#64D2FF" opacity=".55"/><path d="M-36 172 l-6 14 M-8 172 l6 14" stroke="#48484a" stroke-width="3" stroke-linecap="round"/><path d="M-30 144 l10 6 l-10 6 z" fill="#fff" opacity=".9"/></g>`;
+    else if (sp === 'bike') { const tw = mtb ? 6 : 3; s += `<g fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="-38" cy="172" r="17" stroke="${INK}" stroke-width="${tw}"/><circle cx="14" cy="172" r="17" stroke="${INK}" stroke-width="${tw}"/><path d="M-38 172 L-16 172 L-22 142 Z M-22 142 L4 142 L-16 172 M4 142 L14 172" stroke="${jer}" stroke-width="4"/><path d="M-30 138 h14" stroke="${INK}" stroke-width="5"/>${mtb ? `<path d="M-2 136 h14" stroke="${INK}" stroke-width="4"/>` : `<path d="M4 142 l2 -6 q8 -2 8 6 q0 6 -5 6" stroke="${INK}" stroke-width="3"/>`}<circle cx="-16" cy="172" r="4" stroke="${INK}" stroke-width="2"/></g>`; }
+    else if (sp === 'run') s += `<g><path d="M-30 186 V112" stroke="#d1d1d6" stroke-width="3" stroke-linecap="round"/><path d="M-30 112 h34 v22 h-34 z" fill="#fff"/><path d="M-30 112 h8.5 v5.5 h-8.5z M-13 112 h8.5 v5.5 h-8.5z M-21.5 117.5 h8.5 v5.5 h-8.5z M-4.5 117.5 h8.5 v5.5 h-8.5z M-30 123 h8.5 v5.5 h-8.5z M-13 123 h8.5 v5.5 h-8.5z M-21.5 128.5 h8.5 v5.5 h-8.5z M-4.5 128.5 h8.5 v5.5 h-8.5z" fill="${INK}"/></g>`;
+    else if (sp === 'swim') s += `<g fill="none" stroke="#64D2FF" stroke-width="4" stroke-linecap="round" opacity=".85"><path d="M-60 176 q10 -8 20 0 t20 0 t20 0 t20 0"/><path d="M-60 188 q10 -8 20 0 t20 0 t20 0 t20 0" opacity=".6"/></g><g><circle cx="-22" cy="150" r="13" fill="none" stroke="#FF453A" stroke-width="7"/><circle cx="-22" cy="150" r="13" fill="none" stroke="#fff" stroke-width="7" stroke-dasharray="10 10.4"/></g>`;
+    else if (sp === 'gym') s += `<g><rect x="-50" y="174" width="56" height="5" rx="2.5" fill="#8e8e93"/><rect x="-54" y="164" width="10" height="26" rx="3" fill="${INK}"/><rect x="0" y="164" width="10" height="26" rx="3" fill="${INK}"/><path d="M-26 150 a14 14 0 1 1 0.1 0" fill="none"/><circle cx="-24" cy="140" r="9" fill="none" stroke="#48484a" stroke-width="4"/></g>`;
+    else s += `<g><path d="M-58 186 L-30 136 L-14 160 L-4 146 L16 186 Z" fill="#30D158" opacity=".55"/><path d="M-30 136 v-18 l12 5 l-12 5" fill="#FF9F0A" stroke="#FF9F0A" stroke-width="2"/></g>`;
+    // tail
+    s += `<path class="pet-tail" d="M${142 + fat * 5} 174 C 186 174, 198 142, 180 112" fill="none" stroke="${F}" stroke-width="11" stroke-linecap="round"/>`;
+    // body, belly, outfit
+    s += `<g class="pet-body"><ellipse cx="110" cy="${by}" rx="${bw}" ry="${bh}" fill="${F}"/>`;
+    s += `<ellipse cx="110" cy="${by + 12}" rx="${22 + fat * 8}" ry="${22 + fat * 4}" fill="${FL}"/>`;
+    if (jer) {
+      const cut = lazy ? 140 - fat * 3 : 168; s += `<clipPath id="pet-clip"><rect x="0" y="0" width="220" height="${cut}"/></clipPath>`;
+      s += `<clipPath id="pet-clipb"><ellipse cx="110" cy="${by}" rx="${bw + 1}" ry="${bh + 1}"/></clipPath>`;
+      s += `<g clip-path="url(#pet-clip)"><g clip-path="url(#pet-clipb)"><ellipse cx="110" cy="${by}" rx="${bw + 1}" ry="${bh + 1}" fill="${jer}"/>`;
+      if (sp === 'bike') s += `<rect x="40" y="${by - 16}" width="140" height="7" fill="#fff" opacity=".9"/><rect x="40" y="${by - 9}" width="140" height="4" fill="#FF375F"/><path d="M110 ${by - bh + 4} v26" stroke="rgba(0,0,0,.35)" stroke-width="2"/>`;
+      if (sp === 'run') s += `<rect x="94" y="${by - 14}" width="32" height="22" rx="3" fill="#fff"/><text x="110" y="${by + 2}" text-anchor="middle" font-size="12" font-weight="800" fill="${INK}" font-family="-apple-system,system-ui,sans-serif">42</text>`;
+      if (sp === 'gym') s += `<path d="M84 ${by - bh} v20 M136 ${by - bh} v20" stroke="${F}" stroke-width="10"/>`;
+      if (sp === 'walk') s += `<path d="M90 ${by - bh + 2} v40 M130 ${by - bh + 2} v40" stroke="#8E5A2B" stroke-width="5"/>`;
+      s += `</g></g>`;
+    } else if (sp === 'swim') s += `<path d="M${110 - bw + 6} ${by + 18} Q110 ${by + 30} ${110 + bw - 6} ${by + 18} L${110 + bw - 10} ${by + 30} Q110 ${by + 40} ${110 - bw + 10} ${by + 30} Z" fill="#0A84FF"/>`;
+    // feet
+    const shoe = sp === 'run' ? '#FF375F' : sp === 'bike' ? INK : sp === 'walk' ? '#8E5A2B' : F;
+    [86 - fat * 4, 134 + fat * 4].forEach((x) => { s += `<ellipse cx="${x}" cy="184" rx="16" ry="8" fill="${shoe}"/>`; if (shoe !== F) s += `<path d="M${x - 9} 184 h18" stroke="#fff" stroke-width="2" opacity=".8"/>`; });
+    // arms
+    if (strong) {
+      [0, 1].forEach((m) => { const X = (x) => (m ? 220 - x : x); s += `<path d="M${X(80)} 128 Q${X(52)} 126 ${X(56)} 96" fill="none" stroke="${F}" stroke-width="13" stroke-linecap="round"/><circle cx="${X(62)}" cy="114" r="9" fill="${F}"/><circle cx="${X(56)}" cy="92" r="8" fill="${FL}"/>`; });
+      if (sp === 'gym') s += `<rect x="44" y="88" width="24" height="5" rx="2" fill="#8e8e93"/><rect x="40" y="81" width="7" height="19" rx="2" fill="${INK}"/><rect x="65" y="81" width="7" height="19" rx="2" fill="${INK}"/>`;
+    } else if (ready) {
+      s += `<ellipse cx="84" cy="150" rx="9" ry="8" fill="${FL}"/><g class="pet-wave"><path d="M142 128 Q164 116 168 90" fill="none" stroke="${F}" stroke-width="12" stroke-linecap="round"/><circle cx="168" cy="86" r="8.5" fill="${FL}"/></g>`;
+    } else if (lazy) {
+      s += `<g><circle cx="${70 - fat * 4}" cy="150" r="12" fill="none" stroke="#E0A86A" stroke-width="8"/><circle cx="${70 - fat * 4}" cy="150" r="11" fill="none" stroke="#FF7AB0" stroke-width="5" stroke-dasharray="40 30"/><path d="M${64 - fat * 4} 141 l3 1 M${76 - fat * 4} 143 l2 3 M${66 - fat * 4} 158 l3 -1" stroke="#fff" stroke-width="2"/><ellipse cx="${80 - fat * 4}" cy="156" rx="8" ry="7" fill="${FL}"/></g>`;
+      s += `<g><rect x="${144 + fat * 4}" y="136" width="11" height="26" rx="3" fill="#2c2c2e"/><circle cx="${149.5 + fat * 4}" cy="142" r="2.4" fill="#FF453A"/><ellipse cx="${146 + fat * 4}" cy="156" rx="8" ry="7" fill="${FL}"/></g>`;
+    } else {
+      const dy = ex ? 10 : 4; s += `<ellipse cx="${72 - fat}" cy="${158 + dy}" rx="8" ry="14" fill="${F}"/><ellipse cx="${148 + fat}" cy="${158 + dy}" rx="8" ry="14" fill="${F}"/><ellipse cx="${72 - fat}" cy="${170 + dy}" rx="7" ry="5" fill="${FL}"/><ellipse cx="${148 + fat}" cy="${170 + dy}" rx="7" ry="5" fill="${FL}"/>`;
+    }
+    s += `</g>`;
+    // head (drooped when exhausted)
+    s += `<g transform="${ex ? 'translate(4 10) rotate(-9 110 80)' : tired ? 'translate(0 4)' : ''}"><g class="pet-head">`;
+    s += `<path d="M74 66 L70 26 L102 46 Z" fill="${F}"/><path d="M78 60 L75 36 L96 49 Z" fill="${PK}"/><path d="M146 66 L150 26 L118 46 Z" fill="${F}"/><path d="M142 60 L145 36 L124 49 Z" fill="${PK}"/>`;
+    s += `<ellipse cx="110" cy="80" rx="${42 + fat * 2.5}" ry="${38 + fat}" fill="${F}"/><path d="M104 47 l2 10 M110 45 v12 M116 47 l-2 10" stroke="${FD}" stroke-width="3" stroke-linecap="round"/>`;
+    s += `<ellipse cx="110" cy="101" rx="${17 + fat}" ry="${11 + fat * .5}" fill="${FL}"/>`;
+    if (strong || ready) s += `<circle cx="${84 - fat}" cy="98" r="5.5" fill="${PK}" opacity=".55"/><circle cx="${136 + fat}" cy="98" r="5.5" fill="${PK}" opacity=".55"/>`;
+    [93, 127].forEach((x) => {
+      if (strong) s += `<path d="M${x - 8} 84 Q${x} 72 ${x + 8} 84" fill="none" stroke="${INK}" stroke-width="3.5" stroke-linecap="round"/>`;
+      else if (ex) s += `<path d="M${x - 8} 80 Q${x} 87 ${x + 8} 80" fill="none" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>`;
+      else {
+        s += `<g class="${ready ? 'pet-blink' : ''}"><ellipse cx="${x}" cy="80" rx="7.5" ry="9" fill="#E9D35B"/><ellipse cx="${x}" cy="81" rx="2.6" ry="7" fill="${INK}"/><circle cx="${x + 2.5}" cy="76" r="2" fill="#fff"/></g>`;
+        if (tired || lazy) s += `<path d="M${x - 9} 81 A9 10 0 0 1 ${x + 9} 81 Z" fill="${F}"/><path d="M${x - 8.5} 81 h17" stroke="${FD}" stroke-width="2" stroke-linecap="round"/>`;
+      }
+      if (tired || ex) s += `<path d="M${x - 7} 92 Q${x} 96 ${x + 7} 92" fill="none" stroke="#7A6A9A" stroke-width="2" opacity=".75"/>`;
+    });
+    s += `<path d="M105 94 L115 94 L110 100 Z" fill="${PK}"/>`;
+    if (strong) s += `<path d="M99 103 Q110 120 121 103 Z" fill="#5a1a2a"/><ellipse cx="110" cy="110" rx="5" ry="3" fill="#FF7A90"/>`;
+    else if (ex) s += `<ellipse cx="110" cy="107" rx="4" ry="3" fill="#5a1a2a"/>`;
+    else if (tired) s += `<path d="M102 106 Q106 103 110 106 Q114 109 118 106" fill="none" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`;
+    else s += `<path d="M102 103 Q106 108 110 103 Q114 108 118 103" fill="none" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`;
+    if (lazy) s += `<circle cx="122" cy="110" r="1.6" fill="#E0A86A"/><circle cx="98" cy="112" r="1.3" fill="#FF7AB0"/>`;
+    s += `<path d="M92 100 L62 94 M92 104 L62 106 M128 100 L158 94 M128 104 L158 106" stroke="#EEF1F5" stroke-width="1.5" opacity=".8"/>`;
+    // headgear for the sport (off when lazy; on the floor when exhausted)
+    const gear = (() => {
+      if (sp === 'bike') return `<path d="M76 58 Q78 22 110 20 Q142 22 144 58 Q110 50 76 58 Z" fill="${jer}"/><path d="M95 27 q3 10 2 22 M110 24 v24 M125 27 q-3 10 -2 22" stroke="rgba(0,0,0,.32)" stroke-width="3.5" stroke-linecap="round"/>${mtb ? `<path d="M72 58 Q110 46 148 58 L150 52 Q110 40 70 52 Z" fill="${INK}" opacity=".85"/>` : ''}`;
+      if (sp === 'run' || sp === 'gym') return `<path d="M70 60 Q110 46 150 60 L150 70 Q110 56 70 70 Z" fill="${jer}"/><path d="M72 64 Q110 51 148 64" stroke="#fff" stroke-width="2" fill="none" opacity=".85"/>`;
+      if (sp === 'swim') return `<path d="M70 66 Q72 28 110 28 Q148 28 150 66 Q110 56 70 66 Z" fill="#FFD60A"/><circle cx="95" cy="56" r="8.5" fill="rgba(100,210,255,.55)" stroke="#0A84FF" stroke-width="3.5"/><circle cx="125" cy="56" r="8.5" fill="rgba(100,210,255,.55)" stroke="#0A84FF" stroke-width="3.5"/><path d="M103.5 56 h13" stroke="#0A84FF" stroke-width="3"/>`;
+      return `<ellipse cx="110" cy="56" rx="48" ry="8" fill="#B88A4E"/><path d="M80 56 Q82 28 110 26 Q138 28 140 56 Z" fill="#C8A165"/><path d="M80 50 Q110 44 140 50" stroke="#8E5A2B" stroke-width="4" fill="none"/>`;
+    })();
+    if (!lazy && !ex) s += tired ? `<g transform="rotate(9 110 45)">${gear}</g>` : gear;
+    s += `</g></g>`;
+    if (ex) s += `<g transform="translate(150 150) scale(.5)">${gear}</g>`;
+    // effects
+    if (strong) [[-40, 40], [192, 46], [184, 10], [30, 18]].forEach(([x, y], i) => { s += `<path class="pet-spark" style="animation-delay:${i * .35}s" d="M${x} ${y - 9} Q${x + 1.5} ${y - 1.5} ${x + 9} ${y} Q${x + 1.5} ${y + 1.5} ${x} ${y + 9} Q${x - 1.5} ${y + 1.5} ${x - 9} ${y} Q${x - 1.5} ${y - 1.5} ${x} ${y - 9} Z" fill="#FFD60A"/>`; });
+    if (tired) [[160, 54], [64, 62]].forEach(([x, y], i) => { s += `<path class="pet-drop" style="animation-delay:${i * 1.1}s" d="M${x} ${y} q6 9 0 13 q-6 -4 0 -13 z" fill="#64D2FF"/>`; });
+    if (ex) [[150, 44, 14], [164, 28, 18], [180, 10, 22]].forEach(([x, y, f], i) => { s += `<text class="pet-z" style="animation-delay:${i * .7}s" x="${x}" y="${y}" font-size="${f}" font-weight="800" fill="#fff" font-family="-apple-system,system-ui,sans-serif">z</text>`; });
+    return `<svg viewBox="-64 0 284 200" aria-hidden="true"><g class="pet-all">${s}</g></svg>`;
+  }
+  function renderPet() {
+    const host = $('pet-art'); if (!host) return; const P0 = petState(); if (!P0) return; const P = Object.assign(P0, window.__petForce || {});
+    const card = $('card-pet'); card.className = 'g pet-card st-' + P.st;
+    host.innerHTML = petSvg(P);
+    const V = { bike: ['ride', 'rodar'], run: ['run', 'correr'], swim: ['swim', 'nadar'], gym: ['train', 'entrenar'], walk: ['hike', 'caminar'] }[P.sp];
+    const G = { bike: ['jersey', 'camiseta de ciclismo'], run: ['running top', 'camiseta de correr'], swim: ['swimsuit', 'vestido de baño'], gym: ['tank top', 'camiseta del gimnasio'], walk: ['shirt', 'camisa'] }[P.sp];
+    const names = { strong: ['Strong', 'Fuerte'], ready: ['Ready', 'Listo'], tired: ['Tired', 'Cansado'], exhausted: ['Exhausted', 'Agotado'], lazy: ['Getting chubby', 'Engordando'] }[P.st];
+    const zz = firstOf('zones') || {}; txt('pet-name', zz.pet_name || { bike: 'Pedal', run: 'Trote', swim: 'Burbuja', gym: 'Pesas', walk: 'Sendero' }[P.sp]);
+    const badge = $('pet-badge'); badge.className = 'pet-badge s-' + P.st; badge.textContent = L(names[0], names[1]);
+    const f = (P.form > 0 ? '+' : '') + fmt1(P.form);
+    let say;
+    if (P.st === 'strong') say = L(`I'm on fire! Fresh and strong: a great day to ${V[0]} hard.`, `¡Estoy a tope! Fresco y fuerte: hoy es buen día para ${V[1]} duro.`);
+    else if (P.st === 'ready') say = L(`Ready to ${V[0]}. Stick to the plan and we keep levelling up.`, `Listo para ${V[1]}. Sigue el plan y seguimos subiendo de nivel.`);
+    else if (P.st === 'tired') say = L(`I'm a bit tired... easy today, ok? Freshness is ${f}.`, `Estoy cansadito... hoy suave, ¿sí? Tu frescura está en ${f}.`);
+    else if (P.st === 'exhausted') say = P.streak >= 10 ? L(`${P.streak} days without rest... I need a long nap. Rest today.`, `${P.streak} días sin descanso... necesito una siesta larga. Hoy toca descansar.`) : L(`I'm wiped out${P.rec != null ? ` (recovery ${fmt0(P.rec)}%)` : ''}. Full rest today.`, `Estoy fundido${P.rec != null ? ` (recuperación ${fmt0(P.rec)}%)` : ''}. Hoy descanso total.`);
+    else say = P.restPlanned ? L(`Planned rest, and I'm enjoying it... with donuts. ${P.idle} days without training.`, `Descanso planificado y lo estoy disfrutando... con donas. ${P.idle} días sin entrenar.`) : L(`${P.idle} days on the couch... my ${G[0]} barely fits. Let's go ${V[0]}!`, `${P.idle} días en el sillón... ya casi no me cierra la ${G[1]}. ¡Vamos a ${V[1]}!`);
+    txt('pet-say', say);
+    txt('pet-lvl-k', L(`Level ${Math.round(P.lvl * 100)}% · fitness ${fmt0(P.fitness)} vs your best of the last 12 months`, `Nivel ${Math.round(P.lvl * 100)}% · forma física ${fmt0(P.fitness)} vs tu mejor de los últimos 12 meses`));
+    const bar = $('pet-bar'); bar.style.width = Math.max(4, Math.round(P.lvl * 100)) + '%';
+    const stats = $('pet-stats'); stats.replaceChildren();
+    const add = (t) => stats.appendChild(el('span', null, t));
+    add(L('Freshness ', 'Frescura ') + f);
+    if (P.rec != null) add(L('Recovery ', 'Recuperación ') + fmt0(P.rec) + '%');
+    if (P.streak > 0) add(L(`${P.streak} days without rest`, `${P.streak} días sin descanso`));
+    add(P.idle === 0 ? L('Trained today', 'Entrenó hoy') : P.idle === 1 ? L('Last workout: yesterday', 'Último entrenamiento: ayer') : L(`Last workout: ${P.idle} days ago`, `Último entrenamiento: hace ${P.idle} días`));
+    host.setAttribute('aria-label', L(names[0], names[1]));
+  }
+  (function bindPet() { const h = $('pet-art'); if (!h) return; h.addEventListener('click', () => { h.classList.remove('poke'); void h.offsetWidth; h.classList.add('poke'); }); })();
+
+  // ---------- language: English / Spanish ----------
+  const ES_EXACT = {
+    'Today': 'Hoy', 'Trends': 'Tendencias', 'History': 'Historial', 'Model': 'Modelo',
+    'Refresh': 'Actualizar', 'Update with Claude': 'Actualizar con Claude', 'Tap again to start': 'Toca otra vez para iniciar',
+    'Recovery %': 'Recup. %', 'HRV ms': 'VFC ms', 'Resting HR': 'FC en reposo', 'Sleep h': 'Sueño h',
+    'GO EASY': 'CON CALMA', 'GOOD TO TRAIN': 'LISTO PARA ENTRENAR', 'RECOVER': 'RECUPERA',
+    'Recovery': 'Recuperación', 'Freshness': 'Frescura', 'Load balance': 'Balance de carga',
+    'carrying fatigue': 'con fatiga acumulada', 'fresh': 'fresco', 'neutral': 'neutro', 'in the sweet spot': 'en el punto ideal',
+    'spiking, high risk': 'en pico, riesgo alto', 'above safe band': 'sobre la banda segura', 'low, detraining': 'baja, perdiendo forma',
+    'Days without rest': 'Días sin descanso', 'Fitness': 'Forma física', 'Fatigue': 'Fatiga', 'Best 5 min': 'Mejor 5 min', 'Best 20 min': 'Mejor 20 min',
+    'Sleep, last 7': 'Sueño, últimas 7', "Today's call": 'La decisión de hoy', "Set by this morning's Whoop recovery.": 'Según tu recuperación de Whoop de esta mañana.',
+    'Ride 60–75 min in zone 2': 'Rodar 60–75 min en zona 2', '45-min recovery spin': 'Rodada suave de 45 min', 'Full rest': 'Descanso total',
+    'walk, stretch, sleep early': 'caminar, estirar, dormir temprano',
+    'This week': 'Esta semana', "Done, today and what's planned.": 'Lo hecho, hoy y lo planificado.',
+    'Rest': 'Descanso', 'Spin': 'Suave', 'Gym': 'Gimnasio', 'Easy': 'Suave', 'Long': 'Larga', 'Sweet spot': 'Punto dulce', 'Travel': 'Viaje',
+    'Next ride': 'Próxima rodada', 'Time': 'Tiempo', 'Work': 'Trabajo', 'Intensity': 'Intensidad', 'Power': 'Potencia', 'Heart rate': 'Pulso',
+    'Build it in Garmin Connect': 'Créalo en Garmin Connect', 'In the Garmin Connect app:': 'En la app Garmin Connect:',
+    'More › Training & Planning › Workouts › Create Workout › Bike': 'Más › Entrenamiento y planificación › Entrenamientos › Crear entrenamiento › Ciclismo',
+    "Add one step per row above, in order. Set each step's duration in time and its target to": 'Agrega un paso por cada fila de arriba, en orden. Pon la duración de cada paso en tiempo y su objetivo en',
+    'Power (custom)': 'Potencia (personalizada)', 'Heart rate (custom)': 'Frecuencia cardíaca (personalizada)', 'or': 'o',
+    'with the range shown. Toggle above between Power and Heart rate.': 'con el rango indicado. Cambia arriba entre Potencia y Pulso.',
+    'Save it, then': 'Guárdalo y luego', 'Send to Device': 'Enviar al dispositivo',
+    '. Your Edge picks it up at the next sync, under Training › Workouts.': '. Tu Edge lo recibe en la próxima sincronización, en Entrenamiento › Entrenamientos.',
+    'Build it for Hammerhead Karoo': 'Créalo para Hammerhead Karoo',
+    'Open the Hammerhead Dashboard (dashboard.hammerhead.io) or the Hammerhead Companion app and go to': 'Abre el panel de Hammerhead (dashboard.hammerhead.io) o la app Companion y entra a',
+    'Add one step per row above, in order, with its duration and the': 'Agrega un paso por cada fila de arriba, en orden, con su duración y el rango de',
+    'power': 'potencia', 'heart rate': 'pulso', 'range shown. Toggle above between Power and Heart rate.': 'indicado. Cambia arriba entre Potencia y Pulso.',
+    'Save it. The Karoo syncs it over Wi-Fi or the Companion app; start it from': 'Guárdalo. El Karoo lo sincroniza por Wi-Fi o con la app Companion; inícialo desde',
+    'on the Karoo.': 'en el Karoo.',
+    'Goals': 'Metas', 'Countdown and where this block fits.': 'Cuenta regresiva y dónde encaja este bloque.', 'days': 'días',
+    "Coach's read": 'Lectura del entrenador', 'Why today looks the way it does.': 'Por qué hoy se ve así.',
+    'Next days': 'Próximos días', 'Reassessed every morning from your data.': 'Se recalcula cada mañana con tus datos.',
+    'Fitness, fatigue & form': 'Forma física, fatiga y frescura', 'fitness': 'forma física', 'Year': 'Año', 'Dashed = plan': 'Discontinua = plan',
+    'Form +': 'Frescura +', 'Form −': 'Frescura −',
+    "Load is Strava relative effort (heart-rate based), so MTB days count too. Fitness = 42-day average, fatigue = 7-day, form = yesterday's fitness minus fatigue.": 'La carga es el esfuerzo relativo de Strava (basado en el pulso), así que los días de montaña también cuentan. Forma física = promedio de 42 días, fatiga = 7 días, frescura = forma física de ayer menos fatiga.',
+    'Load ratio': 'Relación de carga', '7 days vs 28-day avg': '7 días vs promedio de 28',
+    'Green band 0.8–1.3 builds fitness safely. Above the red line (1.5) injury and illness risk climbs.': 'La banda verde 0.8–1.3 construye forma con seguridad. Sobre la línea roja (1.5) sube el riesgo de lesión y enfermedad.',
+    'Aerobic efficiency': 'Eficiencia aeróbica', 'W per bpm': 'W por lpm', 'Thursday fast': 'Jueves rápido', 'Long ride': 'Rodada larga', 'Easy ride': 'Rodada suave',
+    'More watts for the same heart rate = a stronger engine. Compare rides of the same type.': 'Más vatios con el mismo pulso = un motor más fuerte. Compara rodadas del mismo tipo.',
+    'Power to weight': 'Potencia por peso', 'W/kg best 5 min, latest': 'W/kg mejor 5 min, la más reciente', 'Ride average': 'Promedio de la rodada', 'Working FTP (dashed)': 'FTP de trabajo (discontinua)',
+    'Body (Whoop)': 'Cuerpo (Whoop)', 'Heart rate variability': 'Variabilidad de la frecuencia cardíaca', 'ms, 7-day average': 'ms, promedio de 7 días',
+    'Daily HRV': 'VFC diaria', '7-day average': 'Promedio de 7 días', '30-day baseline': 'Línea base de 30 días',
+    'Higher than your baseline = your nervous system is absorbing the training. A sustained drop is the clearest fatigue signal you have.': 'Por encima de tu línea base = tu sistema nervioso está asimilando el entrenamiento. Una caída sostenida es tu señal de fatiga más clara.',
+    'Resting heart rate': 'Frecuencia cardíaca en reposo', 'bpm, 7-day average': 'lpm, promedio de 7 días',
+    'Lower is better. A rise of 4+ bpm over your baseline usually means fatigue, illness or bad sleep.': 'Más bajo es mejor. Una subida de 4+ lpm sobre tu línea base suele indicar fatiga, enfermedad o mal sueño.',
+    'Sleep': 'Sueño', 'h a night, last 7': 'h por noche, últimas 7', 'Asleep': 'Dormido', "Whoop's sleep need": 'Sueño necesario según Whoop',
+    'What moves your recovery': 'Qué mueve tu recuperación',
+    'Average next-morning recovery, from 280 days of your Whoop data and journal.': 'Recuperación promedio a la mañana siguiente, según tus datos y diario de Whoop.',
+    'Average next-morning recovery, from your Whoop data and journal.': 'Recuperación promedio a la mañana siguiente, según tus datos y diario de Whoop.',
+    'Day after a big Strava day (relative effort 150+)': 'Día después de un día fuerte en Strava (esfuerzo relativo 150+)', 'Slept under 6 hours': 'Dormiste menos de 6 horas',
+    'Had alcohol the day before': 'Alcohol el día anterior', 'Added sugar the day before': 'Azúcar añadida el día anterior', 'Ate close to bedtime': 'Comiste cerca de dormir',
+    'Monthly load': 'Carga mensual', 'Relative effort per month. October is partial.': 'Esfuerzo relativo por mes. El mes actual va incompleto.', 'Relative effort per month. The current month is partial.': 'Esfuerzo relativo por mes. El mes actual va incompleto.',
+    '2026 so far': '2026 hasta hoy', 'This year so far': 'Este año hasta hoy', 'Training days': 'Días de entrenamiento', 'Rest days': 'Días de descanso', 'Longest streak': 'Racha más larga', 'Training time': 'Tiempo de entrenamiento',
+    'Did I follow the plan?': '¿Seguí el plan?', "Every morning, yesterday's recommendation vs what you did, and what it means for your goals.": 'Cada mañana: la recomendación de ayer vs lo que hiciste, y lo que significa para tus metas.',
+    'Followed': 'Cumplido', 'Skipped': 'Omitido', 'Partly': 'Parcial', 'Pending': 'Pendiente', 'Last 15 days': 'Últimos 15 días', 'effort': 'esfuerzo',
+    'By month': 'Por mes', 'Hours and rest days.': 'Horas y días de descanso.', 'Your zones': 'Tus zonas',
+    "Tomorrow's recovery": 'Recuperación de mañana', 'predicted': 'pronosticada', 'What drives your recovery': 'Qué impulsa tu recuperación',
+    '+100 relative effort yesterday': '+100 de esfuerzo relativo ayer', '+1 hour of sleep': '+1 hora de sueño', 'Late meal the night before': 'Comida tarde la noche anterior',
+    '+10 points recovery yesterday': '+10 puntos de recuperación ayer', '+100 relative effort two days ago': '+100 de esfuerzo relativo antier',
+    'Alcohol the day before': 'Alcohol el día anterior',
+    'How your body responds to training': 'Cómo responde tu cuerpo al entrenamiento', 'Fitness builds over': 'La forma física se construye en', 'Fatigue fades over': 'La fatiga se disipa en',
+    'A session pays off': 'Una sesión rinde', '+10 fitness': '+10 de forma física', 'standard model: 42': 'modelo estándar: 42', 'standard model: 7': 'modelo estándar: 7',
+    'when its benefit peaks': 'cuando su beneficio llega al máximo', 'on your 20-min power': 'en tu potencia de 20 min', 'fitness today': 'forma física hoy',
+    'All-time peak': 'Máximo histórico', 'Typical yearly peak': 'Pico anual típico', 'Fastest build': 'Construcción más rápida', 'Breaks of 2+ weeks': 'Pausas de 2+ semanas',
+    'Is the model right?': '¿Acierta el modelo?', 'Recovery spin 45 min': 'Rodada suave 45 min', 'Zone 2, 2 h': 'Zona 2, 2 h', 'Sweet spot 3x10': 'Punto dulce 3x10',
+    'Long ride 4 h': 'Rodada larga 4 h', 'Race / very hard': 'Carrera / muy duro', 'Up to date with Strava.': 'Al día con Strava.',
+    'Connect Strava to refresh from here.': 'Conecta Strava para actualizar desde aquí.', 'Share cancelled.': 'Cancelado.',
+    'Data from Strava and Whoop · Analysis by Claude · Model retrained every morning at 4:15': 'Datos de Strava y Whoop · Análisis de Claude · El modelo se reentrena cada mañana a las 4:15',
+    'Data from Strava (and Whoop, if you add it) · Analysis by Claude · Model retrained every morning': 'Datos de Strava (y Whoop, si lo agregas) · Análisis de Claude · El modelo se reentrena cada mañana',
+    'Your nervous system is coping': 'Tu sistema nervioso está asimilando', 'Sleep is the weak link': 'El sueño es el punto débil', 'Sleep is on track': 'El sueño va bien',
+    'HRV is below your baseline': 'La VFC está bajo tu línea base',
+    'You are rebuilding after the July break. Recovery days pay back more than extra intensity right now.': 'Estás reconstruyendo después de la pausa de julio. Ahora los días de recuperación rinden más que la intensidad extra.',
+    'Hard / fast ride': 'Rodada rápida / dura', 'by feel': 'por sensación', 'zone 2 HR': 'pulso de zona 2', 'zone 1 HR': 'pulso de zona 1',
+    'In the 0.8–1.3 range where fitness builds safely.': 'En el rango 0.8–1.3, donde la forma física crece con seguridad.',
+    'Below 0.8: you are absorbing or detraining. Fine for a recovery week.': 'Bajo 0.8: estás asimilando o perdiendo forma. Está bien para una semana de recuperación.',
+    'Well below your peak: build steadily, recovery days pay back more than extra intensity.': 'Muy por debajo de tu pico: construye con constancia; los días de recuperación rinden más que la intensidad extra.',
+    'Close to your best: protect it with recovery between hard days.': 'Cerca de tu mejor nivel: protégelo con recuperación entre días duros.',
+    'Z1 Recovery': 'Z1 Recuperación', 'Z2 Endurance': 'Z2 Resistencia', 'Z3 Tempo': 'Z3 Tempo', 'Z4 Threshold': 'Z4 Umbral', 'Z5 VO2max': 'Z5 VO2máx', 'Z6 Anaerobic': 'Z6 Anaeróbica', 'Z7 Neuromuscular': 'Z7 Neuromuscular', 'Z1 Active recovery': 'Z1 Recuperación activa',
+    'Tracking starts with the next forecast.': 'El seguimiento empieza con el próximo pronóstico.',
+    'Claude re-runs your full morning update (about 10 minutes). Add today’s Whoop numbers if you have them.': 'Claude repite tu actualización completa de la mañana (unos 10 minutos). Agrega tus números de Whoop de hoy si los tienes.'
+  };
+  const ES_RX = [
+    [/^(\d+) days$/, '$1 días'], [/^day (\d+)$/, 'día $1'], [/^since (\d{4})$/, 'desde $1'], [/^average (\d{4})–(\d{4})$/, 'promedio $1–$2'],
+    [/^in 6 weeks, (.+)$/, 'en 6 semanas, $1'], [/^Your training since (\d{4})$/, 'Tu entrenamiento desde $1'], [/^peak (\d+)$/, 'pico $1'],
+    [/^(\d+)% of your (\d{4}) peak$/, '$1% de tu pico de $2'], [/^(\d+)% of Jun peak$/, '$1% del pico de junio'], [/^year high: (\d+)$/, 'máximo del año: $1'],
+    [/^(.+) · (\d+) days$/, '$1 · $2 días'], [/^vs (.+)$/, 'vs $1'], [/^likely (\d+)–(\d+)%$/, 'probable $1–$2%'], [/^8 h: (\d+)%$/, '8 h: $1%'],
+    [/^(\d+) new activit(?:y|ies) from Strava added since this morning’s update\.$/, (m, n) => n + (n === '1' ? ' actividad nueva de Strava' : ' actividades nuevas de Strava') + ' desde la actualización de la mañana.'],
+    [/^What (\S+) does to (\S+) morning$/, (m, a, b) => 'Qué hace el ' + a + ' en la mañana del ' + b],
+    [/^Fitness (\d+), peak was (\d+)$/, 'Forma física $1, el pico fue $2'], [/^Load spiked to (.+)$/, 'La carga subió a $1'], [/^Load ratio (.+)$/, 'Relación de carga $1'],
+    [/^(\d+)% of (\S+) peak$/, '$1% del pico de $2'], [/^([−+-]?[\d.]+) vs (\S+) peak$/, '$1 vs pico de $2'], [/^([−+-]?[\d.]+) this week$/, '$1 esta semana'],
+    [/^risk ([\d.]+)$/, 'riesgo $1'], [/^([−+-]?[\d.]+) h vs need$/, '$1 h vs lo necesario'], [/^(\d+) activities$/, '$1 actividades'], [/^of (\d+)$/, 'de $1'],
+    [/^(Morning|Afternoon|Evening|Night|Lunch) (Ride|Mountain Bike Ride|Gravel Ride|Virtual Ride|E-Bike Ride|HIIT|Weight Training|Walk|Hike|Run|Workout|Swim|Yoga)$/, (m, a, b) => ({ Ride: 'Rodada', 'Mountain Bike Ride': 'Rodada de montaña', 'Gravel Ride': 'Rodada en lastre', 'Virtual Ride': 'Rodada virtual', 'E-Bike Ride': 'Rodada en bici eléctrica', HIIT: 'HIIT', 'Weight Training': 'Pesas', Walk: 'Caminata', Hike: 'Caminata de montaña', Run: 'Carrera', Workout: 'Entrenamiento', Swim: 'Natación', Yoga: 'Yoga' }[b]) + ' ' + ({ Morning: 'de la mañana', Afternoon: 'de la tarde', Evening: 'de la noche', Night: 'nocturna', Lunch: 'del mediodía' }[a])],
+    [/^5-min power (.+) W\/kg$/, 'Potencia 5 min $1 W/kg'], [/^relative effort ~(\d+)$/, 'esfuerzo relativo ~$1']
+  ];
+  const ES_FRAG = [
+    ['Your recovery this morning: ', 'Tu recuperación esta mañana: '], ['Waiting for this morning’s Whoop recovery. Latest: ', 'Esperando la recuperación de Whoop de hoy. Última: '],
+    ['Next ride · ', 'Próxima rodada · '], ['Recovery forecast · ', 'Pronóstico de recuperación · '],
+    ["After today's load of ", 'Después de la carga de hoy de '], [' relative effort and a ', ' de esfuerzo relativo y una noche de '],
+    [' h night (your recent average). Sleep 8 h and it rises to about ', ' h (tu promedio reciente). Si duermes 8 h sube a cerca de '],
+    ['Predicted recovery on ', 'Recuperación pronosticada el '], [' for each option, at your usual ', ' para cada opción, con tus '],
+    [' h of sleep. The thin line shows 8 h of sleep.', ' h de sueño habituales. La línea delgada muestra 8 h de sueño.'],
+    ['Learned from ', 'Aprendido de '], [' mornings of Whoop and Strava since ', ' mañanas de Whoop y Strava desde '],
+    ['. Each bar is the change in next-morning recovery, holding everything else equal. Gray bars are too small to trust yet (journal answers need more data).', '. Cada barra es el cambio en la recuperación de la mañana siguiente, con todo lo demás igual. Las grises son muy pequeñas para confiar todavía.'],
+    ['Fitted to ', 'Ajustado a '], [' of your 20-minute power efforts since ', ' de tus esfuerzos de 20 minutos desde '], [' (Zwift and road), against 12 years of training load.', ' (Zwift y ruta), contra 12 años de carga de entrenamiento.'],
+    ['Your fatigue lingers much longer than the textbook 7 days, so hard blocks keep your power down for 2 to 3 weeks and your best form arrives about ', 'Tu fatiga dura mucho más que los 7 días de manual, así que los bloques duros bajan tu potencia por 2 a 3 semanas y tu mejor forma llega unos '],
+    [' days after the work. Taper 10 to 14 days before key events. Fit quality is moderate (R² ', ' días después del trabajo. Afloja 10 a 14 días antes de eventos clave. La calidad del ajuste es moderada (R² '],
+    [' W), so use it as a guide, not a law.', ' W), así que úsalo como guía, no como ley.'],
+    ['Tested on past data, the model misses by ', 'Probado con datos pasados, el modelo falla por '], [' points on average, against ', ' puntos en promedio, contra '],
+    [' for simply assuming today repeats yesterday. Live tracking: ', ' si solo supones que hoy repite ayer. Seguimiento en vivo: '],
+    ['starts with the first forecast below.', 'empieza con el primer pronóstico de abajo.'], [' mornings, average miss ', ' mañanas, error promedio '],
+    ['First check: ', 'Primera verificación: '], [', predicted ', ', pronóstico '], ['Each morning the real Whoop number is plotted against the forecast.', 'Cada mañana se grafica el número real de Whoop contra el pronóstico.'],
+    ['Predicted ', 'Pronóstico '], ['Actual: pending', 'Real: pendiente'],
+    ['Started ', 'Iniciado '], ['. You’ll get a notification when Claude finishes (about 10 minutes); this page updates itself.', '. Te llegará una notificación cuando Claude termine (unos 10 minutos); esta página se actualiza sola.'],
+    ['Last 7 days are ', 'Tus últimos 7 días son '], ['Your last 7 days are ', 'Tus últimos 7 días son '], ['x your 28-day average (a week ago: ', 'x tu promedio de 28 días (hace una semana: '],
+    ['). Above 1.5 is where injuries and colds happen.', '). Sobre 1.5 es donde aparecen lesiones y resfríos.'],
+    [' ms (7-day) vs ', ' ms (7 días) vs '], [' baseline, resting HR ', ' de línea base, FC en reposo '],
+    ['. That outweighs my earlier read of the falling HIIT heart rate.', '. Eso pesa más que mi lectura anterior del pulso bajando en HIIT.'],
+    [' h a night this week vs a need near ', ' h por noche esta semana vs una necesidad cercana a '], [' h. Your nights under 6 h cost about 13 recovery points.', ' h. Tus noches de menos de 6 h cuestan unos 13 puntos de recuperación.'],
+    ['Best this year: ', 'Mejor del año: '], [' W/kg on ', ' W/kg el '],
+    ['. Your top end comes back fastest once you are fresh, so it is the first thing to retest after a break.', '. Tu potencia máxima vuelve más rápido cuando estás fresco, así que es lo primero a probar de nuevo después de un descanso.'],
+    ['W/kg at ', 'W/kg con '], [' kg all year. Working FTP ', ' kg todo el año. FTP de trabajo '], ['Your 20-min bests point to where your FTP sits right now. Easy rides are left out here.', 'Tus mejores 20 min indican dónde está tu FTP ahora mismo. Las rodadas suaves no se incluyen.'],
+    [' vs 30-day', ' vs 30 días'], ['Whoop · ', 'Whoop · '], ['need ≈', 'necesitas ≈'], ['HRV ', 'VFC '], [' vs ', ' vs '], ['Weight', 'Peso'],
+    [' kg (your Strava weight). FTP ', ' kg (tu peso en Strava). FTP '], [' W/kg) from your Strava settings. ', ' W/kg) de tu configuración de Strava. '], [' Easy rides are left out here.', ' Las rodadas suaves no se incluyen.'],
+    ['Your fatigue lingers longer than the textbook 7 days, so hard blocks keep your power down for a while and', 'Tu fatiga dura más que los 7 días de manual, así que los bloques duros bajan tu potencia por un tiempo y'],
+    ['Your fatigue clears about as fast as the textbook model, and', 'Tu fatiga se disipa casi tan rápido como en el modelo de manual, y'],
+    [' your best form arrives about ', ' tu mejor forma llega unos '], [' days after the work. Fit quality: R² ', ' días después del trabajo. Calidad del ajuste: R² '],
+    [' W, so use it as a guide, not a law.', ' W, así que úsalo como guía, no como ley.'], [' h a night this week', ' h por noche esta semana'], ['by feel, RPE 8', 'por sensación, esfuerzo 8'],
+    ['max HR ', 'FC máx '], ['HR under ', 'pulso bajo '], ['HR lags, ride by feel', 'el pulso tarda, ve por sensación'], [' · HR ', ' · pulso '], [' bpm', ' lpm'], [' points.', ' puntos.'],
+    ['vs days under 50', 'vs días bajo 50'], ['vs 7+ hours', 'vs 7+ horas'], ['vs no alcohol', 'vs sin alcohol'], ['vs none', 'vs sin azúcar'], ['vs not', 'vs sin comida tarde'], [' · ', ' · ']
+  ];
+  ES_FRAG.sort((a, b) => b[0].length - a[0].length);
+  const LOC = {
+    es: { dateTime: '%A, %e de %B de %Y, %X', date: '%d/%m/%Y', time: '%H:%M:%S', periods: ['AM', 'PM'], days: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'], shortDays: ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'], months: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'], shortMonths: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] },
+    en: { dateTime: '%x, %X', date: '%-m/%-d/%Y', time: '%-I:%M:%S %p', periods: ['AM', 'PM'], days: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'], shortDays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'], shortMonths: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] }
+  };
+  let langLocal = (() => { try { const v = localStorage.getItem('rr_lang'); return v === 'en' || v === 'es' ? v : null; } catch (e) { return null; } })(), curLang = null, i18nBusy = false;
+  function lang() { if (langLocal) return langLocal; const p = dash.params ? dash.params() : {}; return p && p.lang === 'en' ? 'en' : 'es'; }
+  function applyLocale() { const l = lang(); if (l !== curLang) { d3.timeFormatDefaultLocale(LOC[l]); curLang = l; } }
+  function translateAll() {
+    if (i18nBusy) return; i18nBusy = true;
+    try {
+      const l = lang(); const root = document.querySelector('#dash-root .jx') || document.querySelector('.jx'); if (!root) return;
+      document.querySelectorAll('#lang-sw button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.l === l)));
+      const dm = (rawRows('i18n_es') || []).filter((x) => x.en && x.es).sort((a, b) => b.en.length - a.en.length);
+      const exact = new Map(dm.map((x) => [x.en, x.es]));
+      const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); let n;
+      while ((n = w.nextNode())) {
+        const v = n.nodeValue; if (!v || !v.trim()) continue;
+        if (l === 'en') { if (n.__es != null && v === n.__es) n.nodeValue = n.__en; continue; }
+        if (n.__es != null && v === n.__es) continue;
+        const k = v.trim(); let t = v; const ex = ES_EXACT[k] || exact.get(k);
+        if (ex) t = v.replace(k, ex);
+        else {
+          for (const [a, b] of ES_RX) { if (a.test(k)) { t = v.replace(k, k.replace(a, b)); break; } }
+          for (const x of dm) { if (x.en.length > 12 && t.includes(x.en)) t = t.split(x.en).join(x.es); }
+          for (const [a, b] of ES_FRAG) { if (t.includes(a)) t = t.split(a).join(b); }
+        }
+        if (t !== v) { n.__en = v; n.__es = t; n.nodeValue = t; }
+      }
+    } finally { i18nBusy = false; }
+  }
+  (function bindLang() {
+    const sw = $('lang-sw'); if (!sw) return;
+    sw.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { langLocal = b.dataset.l; try { localStorage.setItem('rr_lang', langLocal); } catch (e) {} try { if (dash.setParams) dash.setParams({ lang: b.dataset.l }); } catch (e) {} render(); }));
+    const root = document.querySelector('#dash-root .jx') || document.querySelector('.jx');
+    if (root && window.MutationObserver) { let q = false; new MutationObserver(() => { if (i18nBusy || q || lang() === 'en') return; q = true; requestAnimationFrame(() => { q = false; translateAll(); }); }).observe(root, { childList: true, subtree: true, characterData: true }); }
+  })();
+
+  function render() {
+    applyLocale();
+    safe(renderHeader); safe(renderUpd);
+    if (page === 'today') { safe(renderRings); safe(renderPet); safe(renderCall); safe(renderWeek); safe(renderWorkout); safe(renderInsights); safe(renderPlan); }
+    if (page === 'trends') { safe(renderHrv); safe(renderRhr); safe(renderSleep); safe(renderFx); safe(renderPmc); safe(renderAcwr); safe(renderPower); safe(renderEf); safe(renderMonth); }
+    if (page === 'history') safe(renderHistory);
+    if (page === 'model') { safe(renderForecast); safe(renderScen); safe(renderDrivers); safe(renderResp); safe(renderYears); safe(renderAcc); }
+    safe(translateAll);
+  }
+  dash.onData(render);
+  const named = location.hash.slice(1); if (['today', 'trends', 'history', 'model'].includes(named)) show(named);
+})();
+</script>
+
+</div>
+<script src="importer.js"></script>
+</body>
+</html>
