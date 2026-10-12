@@ -25,6 +25,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
 #btn-claude, #wbox { display: none !important; }
 </style>
 <script src="vendor/d3.min.js"></script>
+<script src="vendor/supabase.js"></script>
 <script src="adapter.js"></script>
 </head>
 <body>
@@ -33,6 +34,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
 tail = '''
 </div>
 <script src="importer.js"></script>
+<script src="account.js"></script>
 </body>
 </html>
 '''
