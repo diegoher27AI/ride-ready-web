@@ -3,6 +3,9 @@
 // plus anything the rider loaded on this phone (Whoop export, daily entries), kept in local storage.
 // Later the files in /data are replaced by the rider's own data from the server.
 (function () {
+  const SUPABASE_URL = 'https://dbyewzuvpknamkpcaqcc.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_6nWi9MryrXpuCBvv7QMPOQ_mkYS97sk';
+  const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
   const KEY = 'rr_params', LOCAL = 'rr_local';
   let params = { lang: 'es' };
   try { Object.assign(params, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
@@ -58,7 +61,7 @@
   function rebuild() {
     const loc = readLocal();
     const out = { ...raw };
-    if ((loc.whoop && loc.whoop.length) || (loc.journal && loc.journal.length)) {
+    if ((raw.whoop && raw.whoop.length) || (loc.whoop && loc.whoop.length) || (loc.journal && loc.journal.length)) {
       const whoop = addAverages(mergeByDate(raw.whoop, loc.whoop));
       const journal = mergeByDate(raw.journal_flags, loc.journal);
       out.whoop = whoop;
@@ -69,11 +72,55 @@
     view = Object.fromEntries(Object.entries(out).map(([k, v]) => [k, flat(v)]));
   }
 
+  // Carga diaria = esfuerzo relativo; forma fisica = promedio exponencial de 42 dias;
+  // fatiga = 7 dias; frescura = forma fisica de ayer menos fatiga de ayer;
+  // relacion de carga = suma de 7 dias / (suma de 28 dias / 4). Misma formula que las notas del proyecto.
+  function computePmc(activities) {
+    const byDate = new Map();
+    (activities || []).forEach((a) => { if (a.date) byDate.set(a.date, (byDate.get(a.date) || 0) + (+a.relative_effort || 0)); });
+    if (!byDate.size) return [];
+    const dates = [...byDate.keys()].sort();
+    const todayIso = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    const lastIso = dates[dates.length - 1] > todayIso ? dates[dates.length - 1] : todayIso;
+    const days = []; let d = new Date(dates[0] + 'T00:00:00Z'); const end = new Date(lastIso + 'T00:00:00Z');
+    for (; d <= end; d = new Date(d.getTime() + 864e5)) days.push(d.toISOString().slice(0, 10));
+    const loads = days.map((x) => byDate.get(x) || 0);
+    let fitness = 0, fatigue = 0; const af = 2 / 43, al = 2 / 8; const rows = [];
+    days.forEach((date, i) => {
+      const load = loads[i]; fitness += af * (load - fitness); fatigue += al * (load - fatigue);
+      const form = rows.length ? rows[rows.length - 1].fitness - rows[rows.length - 1].fatigue : 0;
+      const w7 = loads.slice(Math.max(0, i - 6), i + 1).reduce((a, b) => a + b, 0);
+      const w28 = loads.slice(Math.max(0, i - 27), i + 1).reduce((a, b) => a + b, 0);
+      rows.push({ date, load, fitness: Math.round(fitness * 10) / 10, fatigue: Math.round(fatigue * 10) / 10, form: Math.round(form * 10) / 10, acwr: w28 ? Math.round((w7 / (w28 / 4)) * 100) / 100 : 0, projected: date > todayIso });
+    });
+    return rows;
+  }
+
+  // Trae lo que ya sincronizamos de intervals.icu (Garmin, Karoo, Whoop) para quien inicio sesion.
+  async function loadFromAccount() {
+    if (!sb) return;
+    const { data } = await sb.auth.getSession();
+    if (!data || !data.session) return;
+    const uid = data.session.user.id;
+    const [a, w] = await Promise.all([
+      sb.from('activities').select('*').eq('user_id', uid).order('date', { ascending: true }),
+      sb.from('wellness').select('*').eq('user_id', uid).order('date', { ascending: true }),
+    ]);
+    if (a.data && a.data.length) {
+      raw.activities = a.data.map((x) => ({ date: x.date, name: x.name, sport: x.sport, moving_min: x.moving_min, distance_km: x.distance_km, relative_effort: x.relative_effort, calories: x.calories, avg_hr: x.avg_hr, max_hr: x.max_hr, avg_watts: x.avg_watts }));
+      raw.pmc = computePmc(raw.activities);
+    }
+    if (w.data && w.data.length) {
+      raw.whoop = w.data.map((x) => ({ date: x.date, recovery: x.readiness, hrv: x.hrv, rhr: x.resting_hr, asleep_h: x.sleep_min != null ? Math.round((x.sleep_min / 60) * 100) / 100 : null, need_h: null, sleep_perf: null, debt_min: null, resp: null, deep_min: null, rem_min: null, source: 'intervals.icu' }));
+    }
+  }
+
   async function loadAll() {
     const ids = await fetch('data/index.json', { cache: 'no-cache' }).then((r) => r.json());
     await Promise.all(ids.map(async (id) => {
       try { const j = await fetch('data/' + id + '.json', { cache: 'no-cache' }).then((r) => r.json()); raw[id] = Array.isArray(j) ? j : j.rows || []; } catch (e) { delete raw[id]; }
     }));
+    try { await loadFromAccount(); } catch (e) { console.error('No se pudo traer la cuenta', e); }
     rebuild();
     ready = true;
   }

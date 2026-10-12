@@ -171,6 +171,7 @@
       console.error('intervals-sync', error, detail);
     } else {
       $('ra-sync-st').textContent = t('sync_ok')(data.activities, data.wellness);
+      if (window.dash && window.dash.refresh) window.dash.refresh();
     }
   }
 
@@ -180,7 +181,7 @@
   function onSessionChange(s) {
     session = s; render();
     const uid = s && s.user ? s.user.id : null;
-    if (uid && uid !== lastUserId) loadConnection();   // solo al iniciar sesion de verdad, nunca al refrescar el token
+    if (uid && uid !== lastUserId) { loadConnection(); if (window.dash && window.dash.refresh) window.dash.refresh(); }   // solo al iniciar sesion de verdad, nunca al refrescar el token
     lastUserId = uid;
   }
   sb.auth.onAuthStateChange((_event, s) => onSessionChange(s));
