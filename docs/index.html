@@ -733,7 +733,11 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
     const freshEnough = (pd(todayIso) - last.dt) <= DAY;   // de hoy o de ayer; mas viejo no decide el dia
     if (!freshEnough) return null;
-    const s = pmcState(); const acwr = s && s.last ? s.last.acwr : null;
+    // Con menos de 28 dias de historial real, la relacion de carga se dispara sola (el calculo
+    // compara contra pocos dias, casi todos en cero) sin que haya sobre-entrenamiento de verdad.
+    // No se usa para decidir hasta tener suficiente historial, aunque si se siga mostrando el numero.
+    const s = pmcState(); const acwrReady = s && s.real.length >= 28;
+    const acwr = acwrReady && s.last ? s.last.acwr : null;
     const rec = last.recovery;
     let level = rec >= 67 ? 2 : rec >= 34 ? 1 : 0;        // 2 verde, 1 amarillo, 0 rojo
     const why = [];
@@ -858,7 +862,8 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
       else if (c.spike) bits.push(L(`load ratio ${fmt2(c.acwr)} is over 1.5, so keep it aerobic`, `la relación de carga ${fmt2(c.acwr)} pasa de 1.5, así que mantenlo aeróbico`));
       bits.push(t.title + (t.detail ? ' (' + t.detail + ')' : ''));
       if (c.stale) bits.push(L('Based on yesterday’s numbers: today’s have not arrived yet.', 'Con los números de ayer: los de hoy todavía no llegan.'));
-      txt('hdr-sub', bits.map((x) => x.charAt(0).toUpperCase() + x.slice(1)).join('. ') + '.');
+      const text = bits.map((x) => x.charAt(0).toUpperCase() + x.slice(1)).join('. ');
+      txt('hdr-sub', /[.!?]$/.test(text) ? text : text + '.');
     } else {
       txt('hdr-title', b.verdict);
       txt('hdr-sub', b.headline);
@@ -873,13 +878,15 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     const { last, peak } = s;
     const fitPct = clamp(last.fitness / peak.fitness, 0, 1);
     const freshPct = clamp((last.form + 30) / 55, 0, 1);
-    const a = last.acwr;
-    const balPct = a == null ? 0 : a >= 0.8 && a <= 1.3 ? 1 : a > 1.3 ? clamp(1 - (a - 1.3) / 0.7, 0, 1) : clamp(1 - (0.8 - a) / 0.5, 0, 1);
+    // Con poco historial real la relacion de carga se dispara sola: se avisa en vez de sonar alarma.
+    const acwrReady = s.real.length >= 28;
+    const a = acwrReady ? last.acwr : null;
+    const balPct = a == null ? (acwrReady ? 0 : .5) : a >= 0.8 && a <= 1.3 ? 1 : a > 1.3 ? clamp(1 - (a - 1.3) / 0.7, 0, 1) : clamp(1 - (0.8 - a) / 0.5, 0, 1);
     const wr = whoopRows(); const wl = wr ? wr[wr.length - 1] : null;
     const rings = [
       wl ? { k: 'Recovery', v: clamp(wl.recovery / 100, 0, 1), c: recColor(wl.recovery), val: fmt0(wl.recovery) + '%', sub: 'Whoop · ' + dFmt(wl.dt) } : { k: 'Fitness', v: fitPct, c: '#0A84FF', val: fmt0(last.fitness), sub: Math.round(fitPct * 100) + '% of your ' + uF('%B')(peak.dt) + ' peak' },
       { k: 'Freshness', v: freshPct, c: '#30D158', val: (last.form > 0 ? '+' : '') + fmt1(last.form), sub: last.form < -10 ? 'carrying fatigue' : last.form > 5 ? 'fresh' : 'neutral' },
-      { k: 'Load balance', v: balPct, c: '#FF9F0A', val: fmt2(a), sub: a > 1.5 ? 'spiking, high risk' : a > 1.3 ? 'above safe band' : a < 0.8 ? 'detraining' : 'in the sweet spot' }
+      { k: 'Load balance', v: balPct, c: '#FF9F0A', val: acwrReady ? fmt2(a) : '—', sub: !acwrReady ? 'not enough history yet' : a > 1.5 ? 'spiking, high risk' : a > 1.3 ? 'above safe band' : a < 0.8 ? 'detraining' : 'in the sweet spot' }
     ];
     const host = $('rings'); host.replaceChildren();
     const svg = d3.select(host).append('svg').attr('viewBox', '0 0 148 148');
@@ -1394,7 +1401,9 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     const idle = lastTrain ? Math.max(0, Math.round((tdt - pd(lastTrain)) / DAY)) : 15;
     const b = firstOf('brief'); let streak = b ? +b.streak_days_no_rest || 0 : 0; if (idle >= 2) streak = 0;
     const plan0 = b ? arr(b.plan)[0] : null; const restPlanned = plan0 && plan0.day === todayIso && /rest|argentina|travel|off/i.test(String(plan0.label || ''));
-    const form = +last.form, acwr = last.acwr;
+    // Mismo cuidado que en la decision del dia: con menos de 28 dias de historial real,
+    // la relacion de carga no es confiable todavia.
+    const form = +last.form, acwr = s.real.length >= 28 ? last.acwr : null;
     const pet = petSave(); const neglect = neglectStreak(acts, wr || [], todayIso, pet.revivedAt);
     const trainedToday = train.some((a) => a.date === todayIso);
     const overTrained = rec != null && rec < 34 && trainedToday;
@@ -1665,7 +1674,8 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     'GO EASY': 'CON CALMA', 'GOOD TO TRAIN': 'LISTO PARA ENTRENAR', 'RECOVER': 'RECUPERA',
     'Recovery': 'Recuperación', 'Freshness': 'Frescura', 'Load balance': 'Balance de carga',
     'carrying fatigue': 'con fatiga acumulada', 'fresh': 'fresco', 'neutral': 'neutro', 'in the sweet spot': 'en el punto ideal',
-    'spiking, high risk': 'en pico, riesgo alto', 'above safe band': 'sobre la banda segura', 'low, detraining': 'baja, perdiendo forma',
+    'spiking, high risk': 'en pico, riesgo alto', 'above safe band': 'sobre la banda segura', 'detraining': 'perdiendo forma',
+    'not enough history yet': 'todavía no hay suficiente historial',
     'Days without rest': 'Días sin descanso', 'Fitness': 'Forma física', 'Fatigue': 'Fatiga', 'Best 5 min': 'Mejor 5 min', 'Best 20 min': 'Mejor 20 min',
     'Sleep, last 7': 'Sueño, últimas 7', "Today's call": 'La decisión de hoy', "Set by this morning's Whoop recovery.": 'Según tu recuperación de Whoop de esta mañana.',
     'Ride 60–75 min in zone 2': 'Rodar 60–75 min en zona 2', '45-min recovery spin': 'Rodada suave de 45 min', 'Full rest': 'Descanso total',

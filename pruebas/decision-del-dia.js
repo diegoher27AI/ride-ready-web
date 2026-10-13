@@ -29,9 +29,10 @@ const TODAY = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOS
 function row(over) {
   return Object.assign({ date: TODAY, dt: pd(TODAY), recovery: 70, hrv: 50, hrv_30d: 50, rhr: 55, rhr_30d: 55 }, over);
 }
-function setup(whoopOver, acwr) {
+function setup(whoopOver, acwr, realDays) {
   WHOOP = [row(whoopOver)];
-  PMC = { last: { acwr: acwr == null ? 1.0 : acwr } };
+  const n = realDays == null ? 30 : realDays;   // 30 dias de historial real, salvo que la prueba pida otra cosa
+  PMC = { last: { acwr: acwr == null ? 1.0 : acwr }, real: new Array(n).fill(0) };
 }
 
 let pass = 0, fail = 0;
@@ -74,9 +75,14 @@ setup({ recovery: 80 }, 1.6); check('verde + ACWR 1.6 = zona 2', dayCall().spike
 setup({ recovery: 80 }, 1.4); check('verde + ACWR 1.4 = sesion normal', dayCall().spike, false);
 setup({ recovery: 50 }, 1.9); check('amarillo + ACWR alto no marca zona 2', dayCall().spike, false);
 
+console.log('\nCon poco historial, la relacion de carga no se usa (se dispara sola):');
+setup({ recovery: 80 }, 4.0, 10); check('verde + ACWR 4.0 pero solo 10 dias de historial: no marca zona 2', dayCall().spike, false);
+setup({ recovery: 80 }, 4.0, 27); check('27 dias (uno antes del minimo) todavia no cuenta', dayCall().spike, false);
+setup({ recovery: 80 }, 4.0, 28); check('28 dias ya cuenta', dayCall().spike, true);
+
 console.log('\nDatos viejos:');
 const old = new Date(Date.now() - 5 * DAY).toISOString().slice(0, 10);
-WHOOP = [row({ date: old, dt: pd(old) })]; PMC = { last: { acwr: 1 } };
+WHOOP = [row({ date: old, dt: pd(old) })]; PMC = { last: { acwr: 1 }, real: new Array(30).fill(0) };
 check('recuperacion de hace 5 dias no decide', dayCall(), null);
 const yest = new Date(pd(TODAY).getTime() - DAY).toISOString().slice(0, 10);   // ayer en hora local, igual que el codigo
 WHOOP = [row({ date: yest, dt: pd(yest) })];
