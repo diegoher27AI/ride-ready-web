@@ -108,9 +108,10 @@
     const { data } = await sb.auth.getSession();
     if (!data || !data.session) return;
     const uid = data.session.user.id;
-    const [a, w] = await Promise.all([
+    const [a, w, p] = await Promise.all([
       sb.from('activities').select('*').eq('user_id', uid).order('date', { ascending: true }),
       sb.from('wellness').select('*').eq('user_id', uid).order('date', { ascending: true }),
+      sb.from('athlete_profile').select('*').eq('user_id', uid).maybeSingle(),
     ]);
     if (a.data && a.data.length) {
       raw.activities = a.data.map((x) => ({ date: x.date, name: x.name, sport: x.sport, moving_min: x.moving_min, distance_km: x.distance_km, relative_effort: x.relative_effort, calories: x.calories, avg_hr: x.avg_hr, max_hr: x.max_hr, avg_watts: x.avg_watts }));
@@ -118,6 +119,22 @@
     }
     if (w.data && w.data.length) {
       raw.whoop = w.data.map((x) => ({ date: x.date, recovery: x.readiness, hrv: x.hrv, rhr: x.resting_hr, asleep_h: x.sleep_min != null ? Math.round((x.sleep_min / 60) * 100) / 100 : null, need_h: null, sleep_perf: null, debt_min: null, resp: null, deep_min: null, rem_min: null, source: 'intervals.icu' }));
+    }
+    // Peso, FTP y zonas de verdad. Solo se reemplaza lo que si vino: si falta una pieza,
+    // se queda la del ejemplo antes que dejar la pantalla sin numeros.
+    const pr = p && p.data;
+    if (pr) {
+      const base = (raw.zones && raw.zones[0]) || {};
+      const z = { ...base };
+      if (pr.weight_kg != null) z.weight_kg = pr.weight_kg;
+      if (pr.ftp_w != null) z.ftp_w = pr.ftp_w;
+      if (pr.hr_max != null) z.hr_max = pr.hr_max;
+      if (pr.ftp_w != null && pr.weight_kg) z.ftp_wkg = Math.round((pr.ftp_w / pr.weight_kg) * 100) / 100;
+      if (pr.power_zones && pr.power_zones.length) z.power_zones = pr.power_zones;
+      if (pr.heart_rate_zones && pr.heart_rate_zones.length) z.heart_rate_zones = pr.heart_rate_zones;
+      z.device = 'intervals.icu';
+      z.ftp_note = ''; z.weight_note = '';
+      raw.zones = [z];
     }
   }
 

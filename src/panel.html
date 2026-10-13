@@ -237,13 +237,17 @@
 .pet-top { display: flex; justify-content: flex-start; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pet-name { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
 .pet-badge { font: 700 11px/1 -apple-system, system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; padding: 5px 9px; border-radius: 999px; border: 1px solid currentColor; }
-.pet-badge.s-strong { color: #30D158; } .pet-badge.s-ready { color: #64D2FF; } .pet-badge.s-tired { color: #FFD60A; } .pet-badge.s-exhausted { color: #FF453A; } .pet-badge.s-lazy { color: #FF9F0A; }
+.pet-badge.s-strong { color: #30D158; } .pet-badge.s-ready { color: #64D2FF; } .pet-badge.s-tired { color: #FFD60A; } .pet-badge.s-exhausted { color: #FF453A; } .pet-badge.s-lazy { color: #FF9F0A; } .pet-badge.s-dead { color: #8A95A3; }
 .pet-say { font-size: 15px; line-height: 1.38; margin: 8px 0 10px; }
 .pet-lvl-k { font-size: 12px; color: var(--ink2); margin-bottom: 5px; line-height: 1.3; }
 .pet-bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.12); overflow: hidden; }
 .pet-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #0A84FF, #30D158); transition: width .6s ease; }
 .pet-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .pet-stats span { font-size: 12px; color: var(--ink2); padding: 4px 8px; border-radius: 99px; background: rgba(255,255,255,.08); }
+.pet-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.pet-act { appearance: none; cursor: pointer; font: 600 13px -apple-system, system-ui, sans-serif; padding: 8px 14px; border-radius: 99px; border: 1px solid var(--hair); background: var(--glass2); color: var(--ink); }
+.pet-act:active { transform: scale(.96); }
+.pet-act-main { background: var(--blue); border: 0; color: #fff; font-weight: 700; padding: 11px 18px; min-height: 40px; }
 @media (prefers-reduced-motion: no-preference) {
   .pet-body, .pet-tail, .pet-wave, .pet-all { transform-box: view-box; }
   .pet-body { transform-origin: 110px 190px; animation: petBreath 3.4s ease-in-out infinite; }
@@ -319,6 +323,7 @@
       <div class="pet-lvl-k" id="pet-lvl-k">—</div>
       <div class="pet-bar"><i id="pet-bar"></i></div>
       <div class="pet-stats" id="pet-stats"></div>
+      <div class="pet-actions" id="pet-actions"></div>
      </div>
     </div>
    </div>
@@ -674,20 +679,69 @@
   function whoopRows() { const r = rowsOf('whoop'); return r ? r.map((d) => ({ ...d, dt: pd(d.date), recovery: +d.recovery, hrv: +d.hrv, rhr: +d.rhr, hrv_7d: +d.hrv_7d, hrv_30d: +d.hrv_30d, rhr_7d: +d.rhr_7d, rhr_30d: +d.rhr_30d, asleep_h: d.asleep_h == null ? null : +d.asleep_h, need_h: d.need_h == null ? null : +d.need_h })).sort((a, b) => a.dt - b.dt) : null; }
   const recColor = (v) => (v >= 67 ? '#30D158' : v >= 34 ? '#FFD60A' : '#FF453A');
 
+  // ---------- la decision del dia (las reglas de CLAUDE.md, con datos reales) ----------
+  // 67% o mas = sesion planificada (o 60 a 75 min en zona 2 si la relacion de carga pasa de 1.5);
+  // 34 a 66% = rodada suave de 45 min; bajo 34% = descanso total.
+  // Baja un nivel si la VFC esta mas de 10% bajo su promedio de 30 dias
+  // o el pulso en reposo esta 4 lpm o mas sobre el suyo.
+  function dayCall() {
+    const w = whoopRows(); if (!w || !w.length) return null;
+    const last = w[w.length - 1];
+    if (!isFinite(last.recovery)) return null;
+    const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    const freshEnough = (pd(todayIso) - last.dt) <= DAY;   // de hoy o de ayer; mas viejo no decide el dia
+    if (!freshEnough) return null;
+    const s = pmcState(); const acwr = s && s.last ? s.last.acwr : null;
+    const rec = last.recovery;
+    let level = rec >= 67 ? 2 : rec >= 34 ? 1 : 0;        // 2 verde, 1 amarillo, 0 rojo
+    const why = [];
+    const hrvLow = isFinite(last.hrv) && isFinite(last.hrv_30d) && last.hrv_30d > 0 && last.hrv < last.hrv_30d * 0.9;
+    const rhrHigh = isFinite(last.rhr) && isFinite(last.rhr_30d) && last.rhr >= last.rhr_30d + 4;
+    if (hrvLow) why.push(L(`HRV ${fmt0(last.hrv)} ms is more than 10% under your 30-day ${fmt1(last.hrv_30d)}`, `la VFC de ${fmt0(last.hrv)} ms está más de 10% bajo tu promedio de 30 días (${fmt1(last.hrv_30d)})`));
+    if (rhrHigh) why.push(L(`resting HR ${fmt0(last.rhr)} is ${fmt0(last.rhr - last.rhr_30d)} bpm over your 30-day ${fmt1(last.rhr_30d)}`, `el pulso en reposo de ${fmt0(last.rhr)} está ${fmt0(last.rhr - last.rhr_30d)} lpm sobre tu promedio de 30 días (${fmt1(last.rhr_30d)})`));
+    const downgraded = (hrvLow || rhrHigh) && level > 0;
+    if (downgraded) level -= 1;
+    const spike = level === 2 && acwr != null && acwr > 1.5;
+    return { date: last.date, rec, level, downgraded, spike, acwr, why, stale: last.date !== todayIso };
+  }
+  function callTargets(level, spike) {
+    const z = firstOf('zones');
+    const pz = z ? arr(obj(z.power_zones)) : []; const hz = z ? arr(obj(z.heart_rate_zones)) : [];
+    const find = (list, re) => list.find((x) => re.test(String(x.label || ''))) || null;
+    const z2p = find(pz, /Z2|Endurance/i), z1h = find(hz, /Z1|Recovery/i), z2h = find(hz, /Z2|Endurance/i);
+    const pw = (x) => (x && x.min != null && x.max != null ? `${x.min}–${x.max} W` : null);
+    const hr = (x) => (x && x.min != null && x.max != null ? `${x.min}–${x.max}` : null);
+    if (level === 0) return { title: L('Full rest', 'Descanso total'), detail: L('Walk, stretch, sleep early.', 'Caminar, estirar, dormir temprano.') };
+    if (level === 1) return { title: L('45-min recovery spin', 'Rodada suave de 45 min'), detail: [pw(z2p) ? L('under ', 'bajo ') + (z2p.min || '') + ' W' : null, z1h && z1h.max != null ? L('HR under ', 'pulso bajo ') + z1h.max : null].filter(Boolean).join(' · ') };
+    if (spike) return { title: L('60 to 75 min in zone 2', '60 a 75 min en zona 2'), detail: [pw(z2p), hr(z2h) ? L('HR ', 'pulso ') + hr(z2h) : null].filter(Boolean).join(' · ') };
+    return { title: L('Planned session', 'Sesión planificada'), detail: L('Follow today’s workout below.', 'Sigue el entrenamiento de hoy, abajo.') };
+  }
+
   function renderCall() {
-    const w = whoopRows(); const b = firstOf('brief'); if (!w || !b) return;
-    const last = w[w.length - 1]; const today = b.generated_at; const isToday = last.date === today;
-    txt('call-cap', isToday ? 'Your recovery this morning: ' + fmt0(last.recovery) + '%.' : 'Waiting for this morning’s Whoop recovery. Latest: ' + fmt0(last.recovery) + '% on ' + dFmt(last.dt) + '.');
+    const w = whoopRows(); if (!w || !w.length) return;
+    const last = w[w.length - 1]; const c = dayCall(); const isToday = !!c && !c.stale;
+    txt('call-cap', isToday
+      ? L('Your recovery this morning: ', 'Tu recuperación de esta mañana: ') + fmt0(last.recovery) + '%.'
+      : L('Waiting for this morning’s recovery. Latest: ', 'Esperando la recuperación de esta mañana. La última: ') + fmt0(last.recovery) + '% · ' + dFmt(last.dt) + '.');
+    const t0 = callTargets(0), t1 = callTargets(1), t2 = callTargets(2, c && c.spike);
     const opts = [
-      { k: '67%+', c: '#30D158', t: 'Ride 60–75 min in zone 2', d: '165–195 W · HR 135–150', on: isToday && last.recovery >= 67 },
-      { k: '34–66%', c: '#FFD60A', t: '45-min recovery spin', d: '120–145 W · HR under 127', on: isToday && last.recovery >= 34 && last.recovery < 67 },
-      { k: '<34%', c: '#FF453A', t: 'Full rest', d: 'walk, stretch, sleep early', on: isToday && last.recovery < 34 }
+      { k: '67%+', c: '#30D158', t: t2.title, d: t2.detail, on: !!c && c.level === 2 },
+      { k: '34–66%', c: '#FFD60A', t: t1.title, d: t1.detail, on: !!c && c.level === 1 },
+      { k: '<34%', c: '#FF453A', t: t0.title, d: t0.detail, on: !!c && c.level === 0 }
     ];
     const host = $('rule'); host.replaceChildren();
-    opts.forEach((o) => { const r = el('div', 'opt' + (o.on ? ' on' : '')); const k = el('div', 'rk num', o.k); k.style.color = o.c; r.appendChild(k); const v = el('div', 'rv'); v.appendChild(el('b', null, o.t)); v.appendChild(document.createElement('br')); v.appendChild(document.createTextNode(o.d)); r.appendChild(v); host.appendChild(r); });
+    opts.forEach((o) => { const r = el('div', 'opt' + (o.on ? ' on' : '')); const k = el('div', 'rk num', o.k); k.style.color = o.c; r.appendChild(k); const v = el('div', 'rv'); v.appendChild(el('b', null, o.t)); if (o.d) { v.appendChild(document.createElement('br')); v.appendChild(document.createTextNode(o.d)); } r.appendChild(v); host.appendChild(r); });
+    // Cuando el nivel bajo por VFC o pulso, decirlo: si no, la fila marcada no cuadra con el porcentaje.
     const ask = $('ask');
-    if (!isToday) { ask.hidden = false; ask.replaceChildren(); ask.appendChild(el('b', null, 'Send me today’s Whoop numbers. ')); ask.appendChild(document.createTextNode('Reply to the morning brief with recovery %, HRV, resting HR and hours slept (or a screenshot) and I’ll lock in today’s session.')); }
-    else ask.hidden = true;
+    if (c && c.downgraded) {
+      ask.hidden = false; ask.replaceChildren();
+      ask.appendChild(el('b', null, L('One level down. ', 'Un nivel abajo. ')));
+      ask.appendChild(document.createTextNode(L(`Recovery ${fmt0(c.rec)}% alone would allow more, but ${c.why.join(' and ')}.`, `Con ${fmt0(c.rec)}% de recuperación podrías más, pero ${c.why.join(' y ')}.`)));
+    } else if (!c) {
+      ask.hidden = false; ask.replaceChildren();
+      ask.appendChild(el('b', null, L('No fresh recovery yet. ', 'Todavía no hay recuperación fresca. ')));
+      ask.appendChild(document.createTextNode(L('Connect intervals.icu in Account, or add today’s numbers in Load data.', 'Conecta intervals.icu en Cuenta, o escribe los números de hoy en Cargar datos.')));
+    } else ask.hidden = true;
   }
 
   function renderHrv() {
@@ -749,13 +803,27 @@
   // ---------- TODAY ----------
   function renderHeader() {
     const b = firstOf('brief'); if (!b) return;
-    const gd = pd(b.generated_at);
+    const c = dayCall();
+    const gd = c ? pd(c.date) : pd(b.generated_at);
     txt('hdr-date', uF('%A, %B %-d')(gd));
-    txt('hdr-title', b.verdict);
-    txt('hdr-sub', b.headline);
-    const pill = $('pill'); pill.className = 'verdict-pill v-' + (b.verdict_level || 'warn');
-    const root = document.querySelector('#dash-root .jx'); if (root) { root.classList.remove('mood-ok', 'mood-warn', 'mood-bad'); if (['ok', 'warn', 'bad'].includes(b.verdict_level)) root.classList.add('mood-' + b.verdict_level); }
-    pill.textContent = (b.verdict_level === 'bad' ? 'RECOVER' : b.verdict_level === 'ok' ? 'GOOD TO TRAIN' : 'GO EASY');
+    // Con datos propios y frescos mandan las reglas, no el texto de ejemplo.
+    const level = c ? (c.level === 2 ? 'ok' : c.level === 1 ? 'warn' : 'bad') : (b.verdict_level === 'ok' ? 'ok' : b.verdict_level === 'bad' ? 'bad' : 'warn');
+    if (c) {
+      const t = callTargets(c.level, c.spike);
+      txt('hdr-title', c.level === 0 ? L('Rest today', 'Hoy toca descansar') : c.level === 1 ? L('Go easy today', 'Hoy ve suave') : c.spike ? L('Train, but keep it zone 2', 'Entrena, pero quédate en zona 2') : L('Good to train today', 'Hoy puedes entrenar'));
+      const bits = [L(`Recovery ${fmt0(c.rec)}%`, `Recuperación ${fmt0(c.rec)}%`)];
+      if (c.downgraded) bits.push(L(`dropped one level because ${c.why.join(L(' and ', ' y '))}`, `bajó un nivel porque ${c.why.join(' y ')}`));
+      else if (c.spike) bits.push(L(`load ratio ${fmt2(c.acwr)} is over 1.5, so keep it aerobic`, `la relación de carga ${fmt2(c.acwr)} pasa de 1.5, así que mantenlo aeróbico`));
+      bits.push(t.title + (t.detail ? ' (' + t.detail + ')' : ''));
+      if (c.stale) bits.push(L('Based on yesterday’s numbers: today’s have not arrived yet.', 'Con los números de ayer: los de hoy todavía no llegan.'));
+      txt('hdr-sub', bits.join('. ') + '.');
+    } else {
+      txt('hdr-title', b.verdict);
+      txt('hdr-sub', b.headline);
+    }
+    const pill = $('pill'); pill.className = 'verdict-pill v-' + level;
+    const root = document.querySelector('#dash-root .jx'); if (root) { root.classList.remove('mood-ok', 'mood-warn', 'mood-bad'); root.classList.add('mood-' + level); }
+    pill.textContent = level === 'bad' ? L('RECOVER', 'RECUPERAR') : level === 'ok' ? L('GOOD TO TRAIN', 'LISTO PARA ENTRENAR') : L('GO EASY', 'VE SUAVE');
   }
 
   function renderRings() {
@@ -1103,7 +1171,13 @@
     else if (d.status === 'error') st.textContent = 'Strava didn’t answer. Try again in a minute.';
   }
   let armed = false, sinceSet = false;
-  $('btn-refresh').addEventListener('click', () => { const since = localIso(new Date(Date.now() - 3 * DAY)) + 'T00:00:00'; if (dash.params().since !== since) dash.setParams({ since }); else dash.refresh('strava_live'); });
+  $('btn-refresh').addEventListener('click', async () => {
+    const btn = $('btn-refresh'); const st = $('upd-st'); const sync = window.rrAccount && window.rrAccount.syncNow;
+    btn.setAttribute('aria-busy', 'true');
+    if (sync) { try { await sync(); } catch (e) { st.textContent = String(e.message || e); } }
+    dash.refresh();
+    btn.setAttribute('aria-busy', 'false');
+  });
   $('btn-claude').addEventListener('click', async () => {
     const st = $('upd-st'), btn = $('btn-claude');
     if (!armed) { armed = true; btn.classList.add('arm'); $('btn-claude-l').textContent = 'Tap again to start'; $('wbox').hidden = false; st.textContent = 'Claude re-runs your full morning update (about 10 minutes). Add today’s Whoop numbers if you have them.'; return; }
@@ -1242,10 +1316,32 @@
     if (bv === 0 && cnt.walk) sp = 'walk';
     return { sp, mtb: (cnt.mtb || 0) > (cnt.road || 0) };
   }
+  // Cuanto llevas de la cuenta de adopcion: se guarda en el telefono, no en el servidor
+  // (es solo cariño, no un dato de entrenamiento).
+  const PET_KEY = 'rr_pet';
+  function petSave() { try { return JSON.parse(localStorage.getItem(PET_KEY) || '{}'); } catch (e) { return {}; } }
+  function petAdopt() { try { const p = petSave(); const now = new Date(); const iso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); localStorage.setItem(PET_KEY, JSON.stringify({ gen: (p.gen || 1) + 1, revivedAt: iso })); } catch (e) {} }
+  // Dias seguidos (terminando hoy) sin entrenar Y sin que tocara descansar segun tu recuperacion.
+  // Un dia de descanso que si tocaba, o un dia donde si entrenaste, corta la racha (no te castiga).
+  function neglectStreak(acts, wh, todayIso, revivedAt) {
+    const trainedDays = new Set(acts.filter((a) => { const f = sportFam(a.sport); return f && f !== 'walk' && ((+a.relative_effort || 0) >= 8 || (+a.moving_min || 0) >= 25); }).map((a) => a.date));
+    const recByDate = new Map(wh.map((w) => [w.date, w.recovery]));
+    let streak = 0; const t0 = pd(todayIso).getTime();
+    for (let i = 0; i < 60; i++) {
+      const iso = new Date(t0 - i * DAY).toISOString().slice(0, 10);
+      if (revivedAt && iso < revivedAt) break;
+      if (trainedDays.has(iso)) break;
+      const rec = recByDate.has(iso) ? recByDate.get(iso) : null;
+      if (rec != null && rec < 34) break;
+      streak++;
+    }
+    return streak;
+  }
   function petState() {
     const s = pmcState(); if (!s || !s.last) return null;
     const last = s.last; const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); const tdt = pd(todayIso);
     const yr = s.real.filter((d) => d.dt >= new Date(last.dt - 365 * DAY)); const peakY = yr.reduce((m, d) => Math.max(m, d.fitness || 0), 1);
+    const fh = rowsOf('fitness_hist') || []; const peakEver = Math.max(peakY, ...fh.map((d) => +d.fitness || 0), 1);
     const wr = whoopRows(); const wl = wr && wr.length ? wr[wr.length - 1] : null; const rec = wl && (tdt - wl.dt) <= 2 * DAY && !isNaN(wl.recovery) ? wl.recovery : null;
     const acts = rowsOf('activities') || [];
     const train = acts.filter((a) => { const f = sportFam(a.sport); return f && f !== 'walk' && ((+a.relative_effort || 0) >= 8 || (+a.moving_min || 0) >= 25); });
@@ -1254,22 +1350,36 @@
     const b = firstOf('brief'); let streak = b ? +b.streak_days_no_rest || 0 : 0; if (idle >= 2) streak = 0;
     const plan0 = b ? arr(b.plan)[0] : null; const restPlanned = plan0 && plan0.day === todayIso && /rest|argentina|travel|off/i.test(String(plan0.label || ''));
     const form = +last.form, acwr = last.acwr;
+    const pet = petSave(); const neglect = neglectStreak(acts, wr || [], todayIso, pet.revivedAt);
+    const trainedToday = train.some((a) => a.date === todayIso);
+    const overTrained = rec != null && rec < 34 && trainedToday;
     let pts = 0;
     if (rec != null) pts += rec < 34 ? 3 : rec < 67 ? 1 : 0;
     pts += form < -20 ? 2 : form < -10 ? 1 : 0;
     if (acwr != null) pts += acwr > 1.5 ? 2 : acwr > 1.3 ? 1 : 0;
     pts += streak >= 14 ? 2 : streak >= 10 ? 1 : 0;
     let st;
-    if (idle >= 3 && (rec == null || rec >= 34)) st = 'lazy';
+    if (neglect >= 7) st = 'dead';
+    else if (overTrained) st = 'tired';
+    else if (neglect >= 3) st = 'lazy';
     else if (pts >= 4) st = 'exhausted';
     else if (pts >= 2) st = 'tired';
     else if (form >= 0 && (rec == null || rec >= 67)) st = 'strong';
     else st = 'ready';
-    const fat = st === 'lazy' ? clamp(idle - 2, 1, 5) : 0;
-    return { st, fat, idle, streak, rec, form, acwr, fitness: +last.fitness, lvl: clamp(last.fitness / peakY, 0, 1), restPlanned, ...mainSport() };
+    const fat = st === 'lazy' ? clamp(neglect - 2, 1, 5) : 0;
+    return { st, fat, idle, neglect, streak, rec, form, acwr, overTrained, fitness: +last.fitness, lvl: clamp(last.fitness / peakY, 0, 1), size: clamp(last.fitness / peakEver, 0.22, 1), gen: pet.gen || 1, restPlanned, ...mainSport() };
+  }
+  function petDeadSvg() {
+    const s = `<ellipse cx="110" cy="191" rx="120" ry="7" fill="rgba(0,0,0,.25)"/>
+      <path d="M62 186 L62 120 Q62 92 110 92 Q158 92 158 120 L158 186 Z" fill="#B9C0CC"/>
+      <path d="M62 186 L62 120 Q62 92 110 92 Q158 92 158 120 L158 186" fill="none" stroke="#1d1d1f" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M94 128 v26 M126 128 v26" stroke="#8A95A3" stroke-width="7" stroke-linecap="round"/>
+      <path d="M110 56 l10 -28 l-20 0 z" fill="#D9DEE6" stroke="#1d1d1f" stroke-width="3" stroke-linejoin="round" opacity=".9"/>`;
+    return `<svg viewBox="-64 0 284 200" aria-hidden="true"><g class="pet-all">${s}</g></svg>`;
   }
   function petSvg(P) {
-    const { st, fat, sp, mtb } = P; const F = '#8A95A3', FD = '#6B7683', FL = '#D9DEE6', PK = '#F4A6B8', INK = '#1d1d1f';
+    const { st, fat, sp, mtb, size } = P; const F = '#8A95A3', FD = '#6B7683', FL = '#D9DEE6', PK = '#F4A6B8', INK = '#1d1d1f';
+    if (st === 'dead') return petDeadSvg();
     const jer = { bike: '#0A84FF', run: '#FF375F', swim: null, gym: '#30D158', walk: '#FF9F0A' }[sp];
     const lazy = st === 'lazy', ex = st === 'exhausted', tired = st === 'tired', strong = st === 'strong', ready = st === 'ready';
     const bw = 42 + fat * 7, bh = 40 + fat * 2.5, by = 148 - fat; let s = '';
@@ -1284,7 +1394,7 @@
     // tail
     s += `<path class="pet-tail" d="M${142 + fat * 5} 174 C 186 174, 198 142, 180 112" fill="none" stroke="${F}" stroke-width="11" stroke-linecap="round"/>`;
     // body, belly, outfit
-    s += `<g class="pet-body"><ellipse cx="110" cy="${by}" rx="${bw}" ry="${bh}" fill="${F}"/>`;
+    s += `<g class="pet-body"><ellipse cx="110" cy="${by}" rx="${bw}" ry="${bh}" fill="${F}" stroke="${INK}" stroke-width="3.5"/>`;
     s += `<ellipse cx="110" cy="${by + 12}" rx="${22 + fat * 8}" ry="${22 + fat * 4}" fill="${FL}"/>`;
     if (jer) {
       const cut = lazy ? 140 - fat * 3 : 168; s += `<clipPath id="pet-clip"><rect x="0" y="0" width="220" height="${cut}"/></clipPath>`;
@@ -1314,15 +1424,15 @@
     s += `</g>`;
     // head (drooped when exhausted)
     s += `<g transform="${ex ? 'translate(4 10) rotate(-9 110 80)' : tired ? 'translate(0 4)' : ''}"><g class="pet-head">`;
-    s += `<path d="M74 66 L70 26 L102 46 Z" fill="${F}"/><path d="M78 60 L75 36 L96 49 Z" fill="${PK}"/><path d="M146 66 L150 26 L118 46 Z" fill="${F}"/><path d="M142 60 L145 36 L124 49 Z" fill="${PK}"/>`;
-    s += `<ellipse cx="110" cy="80" rx="${42 + fat * 2.5}" ry="${38 + fat}" fill="${F}"/><path d="M104 47 l2 10 M110 45 v12 M116 47 l-2 10" stroke="${FD}" stroke-width="3" stroke-linecap="round"/>`;
+    s += `<path d="M74 66 L70 26 L102 46 Z" fill="${F}" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/><path d="M78 60 L75 36 L96 49 Z" fill="${PK}"/><path d="M146 66 L150 26 L118 46 Z" fill="${F}" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/><path d="M142 60 L145 36 L124 49 Z" fill="${PK}"/>`;
+    s += `<ellipse cx="110" cy="80" rx="${42 + fat * 2.5}" ry="${38 + fat}" fill="${F}" stroke="${INK}" stroke-width="3.5"/><path d="M104 47 l2 10 M110 45 v12 M116 47 l-2 10" stroke="${FD}" stroke-width="3" stroke-linecap="round"/>`;
     s += `<ellipse cx="110" cy="101" rx="${17 + fat}" ry="${11 + fat * .5}" fill="${FL}"/>`;
-    if (strong || ready) s += `<circle cx="${84 - fat}" cy="98" r="5.5" fill="${PK}" opacity=".55"/><circle cx="${136 + fat}" cy="98" r="5.5" fill="${PK}" opacity=".55"/>`;
+    if (!ex) s += `<circle cx="${84 - fat}" cy="98" r="6" fill="${PK}" opacity="${strong || ready ? .6 : .35}"/><circle cx="${136 + fat}" cy="98" r="6" fill="${PK}" opacity="${strong || ready ? .6 : .35}"/>`;
     [93, 127].forEach((x) => {
       if (strong) s += `<path d="M${x - 8} 84 Q${x} 72 ${x + 8} 84" fill="none" stroke="${INK}" stroke-width="3.5" stroke-linecap="round"/>`;
       else if (ex) s += `<path d="M${x - 8} 80 Q${x} 87 ${x + 8} 80" fill="none" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>`;
       else {
-        s += `<g class="${ready ? 'pet-blink' : ''}"><ellipse cx="${x}" cy="80" rx="7.5" ry="9" fill="#E9D35B"/><ellipse cx="${x}" cy="81" rx="2.6" ry="7" fill="${INK}"/><circle cx="${x + 2.5}" cy="76" r="2" fill="#fff"/></g>`;
+        s += `<g class="${ready ? 'pet-blink' : ''}"><ellipse cx="${x}" cy="80" rx="9.5" ry="11.5" fill="#E9D35B"/><ellipse cx="${x}" cy="81" rx="3.4" ry="9" fill="${INK}"/><circle cx="${x + 3}" cy="75" r="3" fill="#fff"/><circle cx="${x - 2.5}" cy="84" r="1.4" fill="#fff" opacity=".85"/></g>`;
         if (tired || lazy) s += `<path d="M${x - 9} 81 A9 10 0 0 1 ${x + 9} 81 Z" fill="${F}"/><path d="M${x - 8.5} 81 h17" stroke="${FD}" stroke-width="2" stroke-linecap="round"/>`;
       }
       if (tired || ex) s += `<path d="M${x - 7} 92 Q${x} 96 ${x + 7} 92" fill="none" stroke="#7A6A9A" stroke-width="2" opacity=".75"/>`;
@@ -1348,7 +1458,18 @@
     if (strong) [[-40, 40], [192, 46], [184, 10], [30, 18]].forEach(([x, y], i) => { s += `<path class="pet-spark" style="animation-delay:${i * .35}s" d="M${x} ${y - 9} Q${x + 1.5} ${y - 1.5} ${x + 9} ${y} Q${x + 1.5} ${y + 1.5} ${x} ${y + 9} Q${x - 1.5} ${y + 1.5} ${x - 9} ${y} Q${x - 1.5} ${y - 1.5} ${x} ${y - 9} Z" fill="#FFD60A"/>`; });
     if (tired) [[160, 54], [64, 62]].forEach(([x, y], i) => { s += `<path class="pet-drop" style="animation-delay:${i * 1.1}s" d="M${x} ${y} q6 9 0 13 q-6 -4 0 -13 z" fill="#64D2FF"/>`; });
     if (ex) [[150, 44, 14], [164, 28, 18], [180, 10, 22]].forEach(([x, y, f], i) => { s += `<text class="pet-z" style="animation-delay:${i * .7}s" x="${x}" y="${y}" font-size="${f}" font-weight="800" fill="#fff" font-family="-apple-system,system-ui,sans-serif">z</text>`; });
-    return `<svg viewBox="-64 0 284 200" aria-hidden="true"><g class="pet-all">${s}</g></svg>`;
+    // cerca de tu mejor forma fisica historica: un brillo, se ve mas tonificado
+    if (size > 0.82) s += `<ellipse cx="96" cy="${by - bh * .4}" rx="${bw * .3}" ry="${bh * .22}" fill="#fff" opacity=".22"/>`;
+    // tamano segun forma fisica vs tu mejor marca: crece desde gatito hasta adulto, anclado al piso
+    const scale = 0.6 + size * 0.4;
+    return `<svg viewBox="-64 0 284 200" aria-hidden="true"><g class="pet-all" transform="translate(110 191) scale(${scale.toFixed(3)}) translate(-110 -191)">${s}</g></svg>`;
+  }
+  function petPlay(kind) {
+    const host = $('pet-art'); if (host) { host.classList.remove('poke'); void host.offsetWidth; host.classList.add('poke'); }
+    const msgs = kind === 'feed'
+      ? [L('Ñam ñam, thank you!', '¡Ñam ñam, gracias!'), L('Yummy!', '¡Delicioso!')]
+      : [L('Gel down, thanks for the care!', '¡Gel listo, gracias por el cariño!'), L('Feeling the love!', '¡Se siente el cariño!')];
+    const say = $('pet-say'); if (say) { const prev = say.textContent; say.textContent = msgs[Math.floor(Math.random() * msgs.length)]; setTimeout(() => { if (say.textContent === msgs[0] || say.textContent === msgs[1]) say.textContent = prev; }, 2200); }
   }
   function renderPet() {
     const host = $('pet-art'); if (!host) return; const P0 = petState(); if (!P0) return; const P = Object.assign(P0, window.__petForce || {});
@@ -1356,17 +1477,32 @@
     host.innerHTML = petSvg(P);
     const V = { bike: ['ride', 'rodar'], run: ['run', 'correr'], swim: ['swim', 'nadar'], gym: ['train', 'entrenar'], walk: ['hike', 'caminar'] }[P.sp];
     const G = { bike: ['jersey', 'camiseta de ciclismo'], run: ['running top', 'camiseta de correr'], swim: ['swimsuit', 'vestido de baño'], gym: ['tank top', 'camiseta del gimnasio'], walk: ['shirt', 'camisa'] }[P.sp];
-    const names = { strong: ['Strong', 'Fuerte'], ready: ['Ready', 'Listo'], tired: ['Tired', 'Cansado'], exhausted: ['Exhausted', 'Agotado'], lazy: ['Getting chubby', 'Engordando'] }[P.st];
-    const zz = firstOf('zones') || {}; txt('pet-name', zz.pet_name || { bike: 'Pedal', run: 'Trote', swim: 'Burbuja', gym: 'Pesas', walk: 'Sendero' }[P.sp]);
+    const names = { strong: ['Strong', 'Fuerte'], ready: ['Ready', 'Listo'], tired: ['Tired', 'Cansado'], exhausted: ['Exhausted', 'Agotado'], lazy: ['Getting chubby', 'Engordando'], dead: ['At rest', 'En paz'] }[P.st];
+    const zz = firstOf('zones') || {}; const petName = zz.pet_name || { bike: 'Pedal', run: 'Trote', swim: 'Burbuja', gym: 'Pesas', walk: 'Sendero' }[P.sp];
+    txt('pet-name', P.st === 'dead' ? petName : (P.gen > 1 ? `${petName} ${P.gen}` : petName));
     const badge = $('pet-badge'); badge.className = 'pet-badge s-' + P.st; badge.textContent = L(names[0], names[1]);
     const f = (P.form > 0 ? '+' : '') + fmt1(P.form);
     let say;
-    if (P.st === 'strong') say = L(`I'm on fire! Fresh and strong: a great day to ${V[0]} hard.`, `¡Estoy a tope! Fresco y fuerte: hoy es buen día para ${V[1]} duro.`);
+    if (P.st === 'dead') say = L(`A full week without any training you really needed was too much for ${petName}. Time to adopt a new kitten.`, `Una semana entera sin el entrenamiento que de verdad hacía falta fue demasiado para ${petName}. Hora de adoptar un gatito nuevo.`);
+    else if (P.overTrained) say = L(`You trained on a day I needed you to rest (recovery ${P.rec != null ? fmt0(P.rec) : '-'}%)... I'm tired now, not stronger.`, `Entrenaste en un día que tocaba descansar (recuperación ${P.rec != null ? fmt0(P.rec) : '-'}%)... ahora estoy cansado, no más fuerte.`);
+    else if (P.st === 'strong') say = L(`I'm on fire! Fresh and strong: a great day to ${V[0]} hard.`, `¡Estoy a tope! Fresco y fuerte: hoy es buen día para ${V[1]} duro.`);
     else if (P.st === 'ready') say = L(`Ready to ${V[0]}. Stick to the plan and we keep levelling up.`, `Listo para ${V[1]}. Sigue el plan y seguimos subiendo de nivel.`);
     else if (P.st === 'tired') say = L(`I'm a bit tired... easy today, ok? Freshness is ${f}.`, `Estoy cansadito... hoy suave, ¿sí? Tu frescura está en ${f}.`);
     else if (P.st === 'exhausted') say = P.streak >= 10 ? L(`${P.streak} days without rest... I need a long nap. Rest today.`, `${P.streak} días sin descanso... necesito una siesta larga. Hoy toca descansar.`) : L(`I'm wiped out${P.rec != null ? ` (recovery ${fmt0(P.rec)}%)` : ''}. Full rest today.`, `Estoy fundido${P.rec != null ? ` (recuperación ${fmt0(P.rec)}%)` : ''}. Hoy descanso total.`);
-    else say = P.restPlanned ? L(`Planned rest, and I'm enjoying it... with donuts. ${P.idle} days without training.`, `Descanso planificado y lo estoy disfrutando... con donas. ${P.idle} días sin entrenar.`) : L(`${P.idle} days on the couch... my ${G[0]} barely fits. Let's go ${V[0]}!`, `${P.idle} días en el sillón... ya casi no me cierra la ${G[1]}. ¡Vamos a ${V[1]}!`);
+    else say = P.restPlanned ? L(`Planned rest, and I'm enjoying it... with donuts. ${P.idle} days without training.`, `Descanso planificado y lo estoy disfrutando... con donas. ${P.idle} días sin entrenar.`) : L(`${P.neglect} days without training that I needed... my ${G[0]} barely fits. Let's go ${V[0]}!`, `${P.neglect} días sin el entrenamiento que necesitaba... ya casi no me cierra la ${G[1]}. ¡Vamos a ${V[1]}!`);
     txt('pet-say', say);
+    const actions = $('pet-actions'); if (actions) {
+      actions.replaceChildren();
+      if (P.st === 'dead') {
+        const btn = el('button', 'pet-act pet-act-main'); btn.type = 'button'; btn.textContent = L('Adopt a new kitten', 'Adoptar un gatito nuevo');
+        btn.addEventListener('click', () => { petAdopt(); render(); });
+        actions.appendChild(btn);
+      } else {
+        const feed = el('button', 'pet-act'); feed.type = 'button'; feed.textContent = L('🍖 Feed', '🍖 Dar de comer'); feed.addEventListener('click', () => petPlay('feed'));
+        actions.appendChild(feed);
+        if (P.st === 'tired' || P.st === 'exhausted') { const gel = el('button', 'pet-act'); gel.type = 'button'; gel.textContent = L('⚡ Energy gel', '⚡ Gel energético'); gel.addEventListener('click', () => petPlay('gel')); actions.appendChild(gel); }
+      }
+    }
     txt('pet-lvl-k', L(`Level ${Math.round(P.lvl * 100)}% · fitness ${fmt0(P.fitness)} vs your best of the last 12 months`, `Nivel ${Math.round(P.lvl * 100)}% · forma física ${fmt0(P.fitness)} vs tu mejor de los últimos 12 meses`));
     const bar = $('pet-bar'); bar.style.width = Math.max(4, Math.round(P.lvl * 100)) + '%';
     const stats = $('pet-stats'); stats.replaceChildren();

@@ -706,20 +706,69 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   function whoopRows() { const r = rowsOf('whoop'); return r ? r.map((d) => ({ ...d, dt: pd(d.date), recovery: +d.recovery, hrv: +d.hrv, rhr: +d.rhr, hrv_7d: +d.hrv_7d, hrv_30d: +d.hrv_30d, rhr_7d: +d.rhr_7d, rhr_30d: +d.rhr_30d, asleep_h: d.asleep_h == null ? null : +d.asleep_h, need_h: d.need_h == null ? null : +d.need_h })).sort((a, b) => a.dt - b.dt) : null; }
   const recColor = (v) => (v >= 67 ? '#30D158' : v >= 34 ? '#FFD60A' : '#FF453A');
 
+  // ---------- la decision del dia (las reglas de CLAUDE.md, con datos reales) ----------
+  // 67% o mas = sesion planificada (o 60 a 75 min en zona 2 si la relacion de carga pasa de 1.5);
+  // 34 a 66% = rodada suave de 45 min; bajo 34% = descanso total.
+  // Baja un nivel si la VFC esta mas de 10% bajo su promedio de 30 dias
+  // o el pulso en reposo esta 4 lpm o mas sobre el suyo.
+  function dayCall() {
+    const w = whoopRows(); if (!w || !w.length) return null;
+    const last = w[w.length - 1];
+    if (!isFinite(last.recovery)) return null;
+    const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    const freshEnough = (pd(todayIso) - last.dt) <= DAY;   // de hoy o de ayer; mas viejo no decide el dia
+    if (!freshEnough) return null;
+    const s = pmcState(); const acwr = s && s.last ? s.last.acwr : null;
+    const rec = last.recovery;
+    let level = rec >= 67 ? 2 : rec >= 34 ? 1 : 0;        // 2 verde, 1 amarillo, 0 rojo
+    const why = [];
+    const hrvLow = isFinite(last.hrv) && isFinite(last.hrv_30d) && last.hrv_30d > 0 && last.hrv < last.hrv_30d * 0.9;
+    const rhrHigh = isFinite(last.rhr) && isFinite(last.rhr_30d) && last.rhr >= last.rhr_30d + 4;
+    if (hrvLow) why.push(L(`HRV ${fmt0(last.hrv)} ms is more than 10% under your 30-day ${fmt1(last.hrv_30d)}`, `la VFC de ${fmt0(last.hrv)} ms está más de 10% bajo tu promedio de 30 días (${fmt1(last.hrv_30d)})`));
+    if (rhrHigh) why.push(L(`resting HR ${fmt0(last.rhr)} is ${fmt0(last.rhr - last.rhr_30d)} bpm over your 30-day ${fmt1(last.rhr_30d)}`, `el pulso en reposo de ${fmt0(last.rhr)} está ${fmt0(last.rhr - last.rhr_30d)} lpm sobre tu promedio de 30 días (${fmt1(last.rhr_30d)})`));
+    const downgraded = (hrvLow || rhrHigh) && level > 0;
+    if (downgraded) level -= 1;
+    const spike = level === 2 && acwr != null && acwr > 1.5;
+    return { date: last.date, rec, level, downgraded, spike, acwr, why, stale: last.date !== todayIso };
+  }
+  function callTargets(level, spike) {
+    const z = firstOf('zones');
+    const pz = z ? arr(obj(z.power_zones)) : []; const hz = z ? arr(obj(z.heart_rate_zones)) : [];
+    const find = (list, re) => list.find((x) => re.test(String(x.label || ''))) || null;
+    const z2p = find(pz, /Z2|Endurance/i), z1h = find(hz, /Z1|Recovery/i), z2h = find(hz, /Z2|Endurance/i);
+    const pw = (x) => (x && x.min != null && x.max != null ? `${x.min}–${x.max} W` : null);
+    const hr = (x) => (x && x.min != null && x.max != null ? `${x.min}–${x.max}` : null);
+    if (level === 0) return { title: L('Full rest', 'Descanso total'), detail: L('Walk, stretch, sleep early.', 'Caminar, estirar, dormir temprano.') };
+    if (level === 1) return { title: L('45-min recovery spin', 'Rodada suave de 45 min'), detail: [pw(z2p) ? L('under ', 'bajo ') + (z2p.min || '') + ' W' : null, z1h && z1h.max != null ? L('HR under ', 'pulso bajo ') + z1h.max : null].filter(Boolean).join(' · ') };
+    if (spike) return { title: L('60 to 75 min in zone 2', '60 a 75 min en zona 2'), detail: [pw(z2p), hr(z2h) ? L('HR ', 'pulso ') + hr(z2h) : null].filter(Boolean).join(' · ') };
+    return { title: L('Planned session', 'Sesión planificada'), detail: L('Follow today’s workout below.', 'Sigue el entrenamiento de hoy, abajo.') };
+  }
+
   function renderCall() {
-    const w = whoopRows(); const b = firstOf('brief'); if (!w || !b) return;
-    const last = w[w.length - 1]; const today = b.generated_at; const isToday = last.date === today;
-    txt('call-cap', isToday ? 'Your recovery this morning: ' + fmt0(last.recovery) + '%.' : 'Waiting for this morning’s Whoop recovery. Latest: ' + fmt0(last.recovery) + '% on ' + dFmt(last.dt) + '.');
+    const w = whoopRows(); if (!w || !w.length) return;
+    const last = w[w.length - 1]; const c = dayCall(); const isToday = !!c && !c.stale;
+    txt('call-cap', isToday
+      ? L('Your recovery this morning: ', 'Tu recuperación de esta mañana: ') + fmt0(last.recovery) + '%.'
+      : L('Waiting for this morning’s recovery. Latest: ', 'Esperando la recuperación de esta mañana. La última: ') + fmt0(last.recovery) + '% · ' + dFmt(last.dt) + '.');
+    const t0 = callTargets(0), t1 = callTargets(1), t2 = callTargets(2, c && c.spike);
     const opts = [
-      { k: '67%+', c: '#30D158', t: 'Ride 60–75 min in zone 2', d: '165–195 W · HR 135–150', on: isToday && last.recovery >= 67 },
-      { k: '34–66%', c: '#FFD60A', t: '45-min recovery spin', d: '120–145 W · HR under 127', on: isToday && last.recovery >= 34 && last.recovery < 67 },
-      { k: '<34%', c: '#FF453A', t: 'Full rest', d: 'walk, stretch, sleep early', on: isToday && last.recovery < 34 }
+      { k: '67%+', c: '#30D158', t: t2.title, d: t2.detail, on: !!c && c.level === 2 },
+      { k: '34–66%', c: '#FFD60A', t: t1.title, d: t1.detail, on: !!c && c.level === 1 },
+      { k: '<34%', c: '#FF453A', t: t0.title, d: t0.detail, on: !!c && c.level === 0 }
     ];
     const host = $('rule'); host.replaceChildren();
-    opts.forEach((o) => { const r = el('div', 'opt' + (o.on ? ' on' : '')); const k = el('div', 'rk num', o.k); k.style.color = o.c; r.appendChild(k); const v = el('div', 'rv'); v.appendChild(el('b', null, o.t)); v.appendChild(document.createElement('br')); v.appendChild(document.createTextNode(o.d)); r.appendChild(v); host.appendChild(r); });
+    opts.forEach((o) => { const r = el('div', 'opt' + (o.on ? ' on' : '')); const k = el('div', 'rk num', o.k); k.style.color = o.c; r.appendChild(k); const v = el('div', 'rv'); v.appendChild(el('b', null, o.t)); if (o.d) { v.appendChild(document.createElement('br')); v.appendChild(document.createTextNode(o.d)); } r.appendChild(v); host.appendChild(r); });
+    // Cuando el nivel bajo por VFC o pulso, decirlo: si no, la fila marcada no cuadra con el porcentaje.
     const ask = $('ask');
-    if (!isToday) { ask.hidden = false; ask.replaceChildren(); ask.appendChild(el('b', null, 'Send me today’s Whoop numbers. ')); ask.appendChild(document.createTextNode('Reply to the morning brief with recovery %, HRV, resting HR and hours slept (or a screenshot) and I’ll lock in today’s session.')); }
-    else ask.hidden = true;
+    if (c && c.downgraded) {
+      ask.hidden = false; ask.replaceChildren();
+      ask.appendChild(el('b', null, L('One level down. ', 'Un nivel abajo. ')));
+      ask.appendChild(document.createTextNode(L(`Recovery ${fmt0(c.rec)}% alone would allow more, but ${c.why.join(' and ')}.`, `Con ${fmt0(c.rec)}% de recuperación podrías más, pero ${c.why.join(' y ')}.`)));
+    } else if (!c) {
+      ask.hidden = false; ask.replaceChildren();
+      ask.appendChild(el('b', null, L('No fresh recovery yet. ', 'Todavía no hay recuperación fresca. ')));
+      ask.appendChild(document.createTextNode(L('Connect intervals.icu in Account, or add today’s numbers in Load data.', 'Conecta intervals.icu en Cuenta, o escribe los números de hoy en Cargar datos.')));
+    } else ask.hidden = true;
   }
 
   function renderHrv() {
@@ -781,13 +830,27 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   // ---------- TODAY ----------
   function renderHeader() {
     const b = firstOf('brief'); if (!b) return;
-    const gd = pd(b.generated_at);
+    const c = dayCall();
+    const gd = c ? pd(c.date) : pd(b.generated_at);
     txt('hdr-date', uF('%A, %B %-d')(gd));
-    txt('hdr-title', b.verdict);
-    txt('hdr-sub', b.headline);
-    const pill = $('pill'); pill.className = 'verdict-pill v-' + (b.verdict_level || 'warn');
-    const root = document.querySelector('#dash-root .jx'); if (root) { root.classList.remove('mood-ok', 'mood-warn', 'mood-bad'); if (['ok', 'warn', 'bad'].includes(b.verdict_level)) root.classList.add('mood-' + b.verdict_level); }
-    pill.textContent = (b.verdict_level === 'bad' ? 'RECOVER' : b.verdict_level === 'ok' ? 'GOOD TO TRAIN' : 'GO EASY');
+    // Con datos propios y frescos mandan las reglas, no el texto de ejemplo.
+    const level = c ? (c.level === 2 ? 'ok' : c.level === 1 ? 'warn' : 'bad') : (b.verdict_level === 'ok' ? 'ok' : b.verdict_level === 'bad' ? 'bad' : 'warn');
+    if (c) {
+      const t = callTargets(c.level, c.spike);
+      txt('hdr-title', c.level === 0 ? L('Rest today', 'Hoy toca descansar') : c.level === 1 ? L('Go easy today', 'Hoy ve suave') : c.spike ? L('Train, but keep it zone 2', 'Entrena, pero quédate en zona 2') : L('Good to train today', 'Hoy puedes entrenar'));
+      const bits = [L(`Recovery ${fmt0(c.rec)}%`, `Recuperación ${fmt0(c.rec)}%`)];
+      if (c.downgraded) bits.push(L(`dropped one level because ${c.why.join(L(' and ', ' y '))}`, `bajó un nivel porque ${c.why.join(' y ')}`));
+      else if (c.spike) bits.push(L(`load ratio ${fmt2(c.acwr)} is over 1.5, so keep it aerobic`, `la relación de carga ${fmt2(c.acwr)} pasa de 1.5, así que mantenlo aeróbico`));
+      bits.push(t.title + (t.detail ? ' (' + t.detail + ')' : ''));
+      if (c.stale) bits.push(L('Based on yesterday’s numbers: today’s have not arrived yet.', 'Con los números de ayer: los de hoy todavía no llegan.'));
+      txt('hdr-sub', bits.join('. ') + '.');
+    } else {
+      txt('hdr-title', b.verdict);
+      txt('hdr-sub', b.headline);
+    }
+    const pill = $('pill'); pill.className = 'verdict-pill v-' + level;
+    const root = document.querySelector('#dash-root .jx'); if (root) { root.classList.remove('mood-ok', 'mood-warn', 'mood-bad'); root.classList.add('mood-' + level); }
+    pill.textContent = level === 'bad' ? L('RECOVER', 'RECUPERAR') : level === 'ok' ? L('GOOD TO TRAIN', 'LISTO PARA ENTRENAR') : L('GO EASY', 'VE SUAVE');
   }
 
   function renderRings() {

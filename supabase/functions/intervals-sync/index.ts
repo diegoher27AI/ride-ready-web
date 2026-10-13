@@ -20,6 +20,29 @@ function isoDaysAgo(n: number) {
   return d.toISOString().slice(0, 10);
 }
 
+// intervals.icu entrega las zonas como limites de arriba. Las de potencia normalmente van en
+// porcentaje del FTP; las de pulso pueden venir en porcentaje o en latidos. Se detecta por el
+// tamano de los numeros en vez de suponer, y si no cuadra se devuelve vacio antes que inventar.
+function toBands(tops: number[] | null | undefined, ref: number | null, names: string[] | null | undefined, kind: 'power' | 'hr') {
+  if (!Array.isArray(tops) || !tops.length) return null;
+  const clean = tops.filter((t) => typeof t === 'number' && t > 0);
+  if (!clean.length) return null;
+  const top = Math.max(...clean);
+  // Si el mayor es chico, son porcentajes y hace falta la referencia (FTP o pulso maximo).
+  const isPercent = kind === 'power' ? top <= 250 : top <= 100;
+  if (isPercent && (!ref || ref <= 0)) return null;
+  const abs = clean.map((t) => (isPercent ? Math.round((t * (ref as number)) / 100) : t));
+  const out: { label: string; min: number; max: number | null }[] = [];
+  let min = 0;
+  abs.forEach((max, i) => {
+    const label = (names && names[i]) || `Z${i + 1}`;
+    const last = i === abs.length - 1;
+    out.push({ label, min, max: last ? null : max });
+    min = max + 1;
+  });
+  return out;
+}
+
 async function fetchIntervals(path: string, apiKey: string) {
   const auth = 'Basic ' + btoa(`API_KEY:${apiKey}`);
   const res = await fetch(`https://intervals.icu${path}`, { headers: { Authorization: auth } });
@@ -51,9 +74,10 @@ Deno.serve(async (req) => {
     }
 
     const oldest = isoDaysAgo(DAYS_BACK);
-    const [activities, wellness] = await Promise.all([
+    const [activities, wellness, athlete] = await Promise.all([
       fetchIntervals(`/api/v1/athlete/0/activities?oldest=${oldest}`, conn.api_key),
       fetchIntervals(`/api/v1/athlete/0/wellness?oldest=${oldest}`, conn.api_key),
+      fetchIntervals(`/api/v1/athlete/0`, conn.api_key).catch(() => null),
     ]);
 
     const actRows = (activities as any[]).map((a) => ({
@@ -87,11 +111,31 @@ Deno.serve(async (req) => {
     if (actRows.length) await admin.from('activities').upsert(actRows, { onConflict: 'user_id,source_id' });
     if (wellRows.length) await admin.from('wellness').upsert(wellRows, { onConflict: 'user_id,date' });
 
-    // Para revisar juntos que campo trae la recuperacion de Whoop (sin imprimir la clave ni datos de salud).
-    const last = (wellness as any[])[wellness.length - 1];
-    if (last) console.log('ultimo dia de bienestar, campos con datos:', Object.keys(last).filter((k) => last[k] != null));
+    // Perfil deportivo: peso, FTP, pulso maximo y zonas, de los ajustes de bici.
+    let profileSaved = false;
+    if (athlete) {
+      const settings: any[] = (athlete as any).sportSettings || [];
+      const isRide = (s: any) => Array.isArray(s?.types) && s.types.some((t: string) => /Ride|Cycling|Velomobile|Handcycle/i.test(t));
+      const bike = settings.find(isRide) || settings[0] || null;
+      if (bike) {
+        const ftp = bike.ftp ?? null;
+        const hrMax = bike.max_hr ?? null;
+        await admin.from('athlete_profile').upsert({
+          user_id: userId,
+          weight_kg: (athlete as any).weight ?? (athlete as any).icu_weight ?? null,
+          ftp_w: ftp,
+          hr_max: hrMax,
+          lthr: bike.lthr ?? null,
+          power_zones: toBands(bike.power_zones, ftp, bike.power_zone_names, 'power'),
+          heart_rate_zones: toBands(bike.hr_zones, hrMax ?? bike.lthr ?? null, bike.hr_zone_names, 'hr'),
+          raw: bike,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+        profileSaved = true;
+      }
+    }
 
-    return new Response(JSON.stringify({ activities: actRows.length, wellness: wellRows.length }), {
+    return new Response(JSON.stringify({ activities: actRows.length, wellness: wellRows.length, profile: profileSaved }), {
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   } catch (e) {
