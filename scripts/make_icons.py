@@ -54,10 +54,15 @@ def write(name: str, size: int, source: str) -> None:
     print(name, size)
 
 
+# El numero de version va en el nombre del archivo a proposito: iOS guarda el icono
+# por direccion y no lo vuelve a pedir aunque cambie. Al cambiar el nombre lo ve como
+# nuevo. Si cambias el diseno, sube V y actualiza build.py y el manifiesto.
+V = 2
+
 OUT.mkdir(parents=True, exist_ok=True)
-write('icon-192.png', 192, svg(rounded=True))
-write('icon-512.png', 512, svg(rounded=True))
-write('apple-touch-icon.png', 180, svg(rounded=True))
-write('icon-maskable-512.png', 512, svg(rounded=False, scale=0.78))
-(OUT / 'icon.svg').write_text(svg(rounded=True))
+write(f'icon-192-v{V}.png', 192, svg(rounded=True))
+write(f'icon-512-v{V}.png', 512, svg(rounded=True))
+write(f'apple-touch-icon-v{V}.png', 180, svg(rounded=True))
+write(f'icon-maskable-512-v{V}.png', 512, svg(rounded=False, scale=0.78))
+(OUT / f'icon-v{V}.svg').write_text(svg(rounded=True))
 print('listo')
