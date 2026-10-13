@@ -27,15 +27,19 @@ Hecho:
 1. **Semana 1:** `build.py` arma `public/index.html` a partir de `src/panel.html` con manifiesto, íconos, metadatos de iOS y un trabajador en segundo plano (`public/sw.js`) para abrir sin conexión. `public/adapter.js` reemplaza el entorno de Claude (`window.dash`: `data`, `onData`, `params`, `setParams`, `refresh`, `loader`, `setLink`) leyendo `public/data/*.json`.
 2. **Cargar datos:** `public/importer.js` agrega el botón "Cargar datos": importa la exportación de Whoop (CSV) y los números del día escritos a mano, y lo guarda en el teléfono (`localStorage`, clave `rr_local`). `adapter.js` lo mezcla con los datos servidos y recalcula promedios de 7 y 30 días y "qué mueve tu recuperación".
 
-Probado en Chromium con tamaño de iPhone: sin errores, funciona sin conexión, ES / EN. **No se ha probado en un iPhone real ni se ha publicado.**
+3. **Publicada e instalada:** vive en <https://diegoher27ai.github.io/ride-ready-web/> (GitHub Pages, repositorio público `diegoher27AI/ride-ready-web`, carpeta `docs/` es copia de `public/`). `public/data/` son **datos de ejemplo** generados por `scripts/make_demo_data.py`; los reales de Juan Diego están solo en `data-privado/`, fuera de git. Instalada y probada en su iPhone.
+4. **Cuentas y datos reales:** Supabase (proyecto `dbyewzuvpknamkpcaqcc`). Entrada con código de 6 números al correo (el enlace no sirve: en iOS abre Safari y la app instalada no comparte sesión). Correo sale por Gmail con contraseña de aplicación, porque el plan gratis de Supabase no deja cambiar la plantilla con su propio correo. Tablas: `profiles`, `intervals_connections`, `activities`, `wellness`, `athlete_profile`, todas con cada ciclista viendo solo lo suyo. La función `intervals-sync` trae de intervals.icu unos 3 años de actividades, bienestar y el perfil deportivo.
+5. **La decisión del día ya se calcula de verdad** en `src/panel.html` (`dayCall()` y `callTargets()`), con las reglas de abajo y datos reales. La mascota sigue esa misma decisión. Pendiente: la "lectura del entrenador" (el texto largo) sigue siendo de ejemplo hasta que exista el cálculo del servidor.
+
+Probado con un navegador de prueba (`pruebas/`): las cuatro pestañas, en español e inglés, con datos de ejemplo, con datos reales y sin datos, incluido un histórico de 3 años. Sin errores.
 
 ## Lo que sigue (en este orden)
 
-1. Probar en la computadora: `cd public && python3 -m http.server 8765`.
-2. **Publicar de forma privada con HTTPS** para instalarla en el iPhone (Safari › Compartir › Agregar a inicio). `public/data/` tiene los datos reales de salud de Juan Diego: no puede quedar en una dirección pública abierta. Opciones: acceso protegido en el servicio de publicación, o publicar con datos de ejemplo anonimizados y que él cargue los suyos con "Cargar datos".
-3. **Semana 2:** cuentas de usuario (entrada por enlace al correo), base de datos por ciclista, conexión con **intervals.icu** (clave de API por usuario, trae actividades de Garmin y Karoo, y también la recuperación, VFC, pulso en reposo y sueño de Whoop a través del conector propio de intervals.icu, sin necesidad de una cuenta aparte de Whoop Developer), y subir **archivos FIT** de actividades. El diario de Whoop (alcohol, azúcar añadida, comida tarde) sigue siendo manual con "Cargar datos": ningún conector lo entrega.
-4. **Semana 3:** el cálculo de cada mañana en el servidor (traer datos, correr el modelo, reglas de recuperación, texto con la API de Claude) y avisos al teléfono (web push: iOS 16.4 o más reciente y la app abierta desde la pantalla de inicio).
-5. **Semana 4:** prueba con 5 amigos, luego 30 a 50.
+1. **Subir la función con el perfil deportivo:** `supabase functions deploy intervals-sync` quedó sin correr (bloqueado por permisos). El código y la tabla `athlete_profile` ya están; sin ese despliegue, el FTP y las zonas siguen siendo de ejemplo.
+2. **Historial de Garmin:** Juan Diego pidió la exportación completa; cuando llegue el correo, pegar el enlace en intervals.icu y tocar "Actualizar" en la app. Ahí se completan frescura y relación de carga reales.
+3. **Semana 3:** el cálculo de cada mañana en el servidor (traer datos, correr el modelo, texto con la API de Claude) y avisos al teléfono (web push: iOS 16.4 o más reciente y la app abierta desde la pantalla de inicio). Falta que él cree la cuenta en console.anthropic.com para la clave.
+4. **Mandar el entrenamiento del día al calendario de intervals.icu** (`POST /api/v1/athlete/{id}/events`), que de ahí llega solo al Garmin y al Karoo. Confirmado que se puede; no se ha construido.
+5. **Semana 4:** prueba con 5 amigos, luego 30 a 50. Cualquiera entra con su correo y conecta su propia clave de intervals.icu; no hace falta nada extra por persona.
 
 Pila decidida: código propio con un servicio de base de datos con cuentas y funciones programadas, más un servicio de publicación web. **No usar Base44** (se evaluó y se descartó: dependencia, costo por créditos y la app ya existe como código). Antes de elegir servicios concretos, proponle 1 o 2 opciones gratis y explícale qué cuenta debe crear.
 
@@ -58,6 +62,8 @@ Pila decidida: código propio con un servicio de base de datos con cuentas y fun
 ## Cómo trabajar en este proyecto
 
 - Cambios del panel: edita `src/panel.html` y corre `python3 build.py`. No edites `public/index.html` a mano.
-- Si cambias archivos que se guardan sin conexión, sube la versión del caché en `public/sw.js` (`rr-shell-vN`).
-- Prueba cada cambio en un navegador con tamaño de iPhone (390 × 844), en ES y EN, revisa que no haya errores en la consola y que la página no se desborde a lo ancho.
+- Después de `build.py`, sincroniza la copia publicada: `rm -rf docs && cp -R public docs`. GitHub Pages sirve `docs/`.
+- Si cambias archivos que se guardan sin conexión, sube la versión del caché en `public/sw.js` (`rr-shell-vN`). El trabajador ya pide primero al servidor y usa lo guardado solo sin conexión, así que los cambios se ven sin cerrar la app a la fuerza.
+- Si cambias los íconos, sube el número en `scripts/make_icons.py` (`V = N`) y actualiza `build.py` y el manifiesto: iOS guarda el ícono por dirección y no lo vuelve a pedir si el nombre no cambia.
+- Prueba cada cambio: `node pruebas/decision-del-dia.js`, `node pruebas/zonas.js`, y con jsdom instalado `node pruebas/abrir-la-app.js [ejemplo|real|vacio] [es|en]`, `pruebas/jugar-con-la-mascota.js` y `pruebas/revisar-idioma.js`. Revisa además en un navegador con tamaño de iPhone (390 × 844) que no se desborde a lo ancho.
 - Antes de pedirle algo a Juan Diego, termina todo lo que puedas hacer tú.
