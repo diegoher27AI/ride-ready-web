@@ -304,7 +304,6 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   .pet-drop { animation: petDrop 2.2s ease-in infinite; opacity: 0; }
   .pet-spark { transform-box: fill-box; transform-origin: center; animation: petSpark 1.8s ease-in-out infinite; }
   .pet-blink { transform-box: fill-box; transform-origin: center; animation: petBlink 4.5s infinite; }
-  .pet-art.poke svg { animation: petPoke .6s ease-out; transform-origin: 50% 100%; }
 }
 @keyframes petBreath { 50% { transform: scale(1.025, 1.035); } }
 @keyframes petHop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-7px); } }
@@ -314,7 +313,6 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
 @keyframes petDrop { 0% { opacity: 0; transform: translateY(-4px); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(18px); } }
 @keyframes petSpark { 0%, 100% { opacity: .25; transform: scale(.6); } 50% { opacity: 1; transform: scale(1.1); } }
 @keyframes petBlink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
-@keyframes petPoke { 0% { transform: scale(1); } 30% { transform: scale(1.06, .92); } 60% { transform: translateY(-10px) scale(.97, 1.04); } 100% { transform: none; } }
 </style>
 
 <div class="jx">
