@@ -398,10 +398,71 @@ brief = [{
 }]
 write('brief', brief)
 
-# compliance narrative translations (english text already simple/generic; add passthrough pairs so lookup is stable)
+# Traducciones de todo lo que queda en ingles en los datos de ejemplo. El panel traduce
+# con estas filas, asi que si falta una, ese texto se queda en ingles aunque la app este
+# en español (paso: lo encontro la prueba pruebas/abrir-la-app.js).
+ES_EXTRA = {
+    'Example season summary for this demo account.': 'Resumen de temporada de ejemplo para esta cuenta de muestra.',
+    'Road bike, power + HR.': 'Bici de ruta, potencia y pulso.',
+    'Aerobic base plus short openers to read how the heart rate answers.':
+        'Base aerobica mas aperturas cortas para leer como responde el pulso.',
+    'Three 10-minute sweet-spot blocks to bank durable fitness.':
+        'Tres bloques de 10 minutos en sweet spot para ganar forma que dure.',
+    'Easy day: a light zone-2 spin or full rest depending on how recovered he was.':
+        'Dia suave: una rodada ligera en zona 2 o descanso total, segun lo recuperado que estuviera.',
+    'Low-intensity session only; no hard ride that day.':
+        'Solo una sesion de baja intensidad; nada duro ese dia.',
+    'A genuinely light day, the right call after a hard effort earlier in the week.':
+        'Un dia de verdad suave, la decision correcta despues de un esfuerzo duro esa semana.',
+    '45-min recovery spin, kept easy.': 'Rodada suave de 45 min, sin apurarse.',
+    'Longer road ride than planned, more effort than the day called for.':
+        'Rodada de ruta mas larga de lo planificado, mas esfuerzo del que pedia el dia.',
+    'Good aerobic volume, but it added fatigue on a day that needed recovery.':
+        'Buen volumen aerobico, pero sumo fatiga en un dia que pedia recuperacion.',
+    'Full rest.': 'Descanso total.',
+    'Short easy ride, kept mostly in zone 1-2 with a low effort score.':
+        'Rodada corta y suave, casi toda en zona 1-2 y con poco esfuerzo.',
+    'Not the rest day, but low enough load that it barely adds fatigue.':
+        'No fue el descanso, pero la carga fue tan baja que casi no suma fatiga.',
+    'Day after a big ride (relative effort 150+)': 'Dia despues de una rodada grande (esfuerzo relativo 150+)',
+    'Slept under 6 hours': 'Durmio menos de 6 horas',
+    'Had alcohol the day before': 'Tomo alcohol el dia antes',
+    'Added sugar the day before': 'Azucar añadida el dia antes',
+    'Ate close to bedtime': 'Comio cerca de la hora de dormir',
+    'vs days under 50': 'vs dias bajo 50',
+    'vs 7+ hours': 'vs 7+ horas',
+    'vs no alcohol': 'vs sin alcohol',
+    'vs none': 'vs sin azucar',
+    'vs not': 'vs sin comida tarde',
+    'Example hard ride': 'Rodada dura de ejemplo',
+    'Example Gran Fondo': 'Gran Fondo de ejemplo',
+    'Example Regional Race': 'Carrera regional de ejemplo',
+    'Example regional race in 5 weeks': 'Carrera regional de ejemplo en 5 semanas',
+}
+for en, es in ES_EXTRA.items():
+    es_rows.append({'en': en, 'es': es})
+
+# Si algo del ejemplo quedo sin traducir, mejor saberlo aqui que verlo en la app.
+written = {r['en'] for r in es_rows}
+missing = []
 for row in comp_rows:
     for k in ('recommended', 'actual', 'impact'):
-        es_rows.append({'en': row[k], 'es': row[k]})
+        if row[k] not in written:
+            missing.append(row[k])
+for s in sessions_rows:
+    for k in ('purpose', 'condition'):
+        if s[k] not in written:
+            missing.append(s[k])
+for fx in whoop_fx:
+    for k in ('label', 'compare'):
+        if fx[k] not in written:
+            missing.append(fx[k])
+if ytd[0]['note'] not in written:
+    missing.append(ytd[0]['note'])
+if missing:
+    print('OJO, sin traduccion al español:')
+    for s in missing:
+        print('  -', s)
 
 write('i18n_es', es_rows)
 
