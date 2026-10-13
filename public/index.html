@@ -906,7 +906,10 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   function renderWeek() {
     const b = firstOf('brief'); const acts = rowsOf('activities') || [];
     if (!b) return;
-    const today = pd(b.generated_at); const plan = arr(b.plan);
+    // El dia de hoy es el de verdad, no el de la fecha del texto de ejemplo: si no, "hoy" se queda
+    // pegado en la fecha con la que se genero ese texto y no reconoce lo que hiciste de verdad hoy.
+    const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    const today = pd(todayIso); const plan = arr(b.plan);
     const host = $('week'); host.replaceChildren();
     for (let i = -3; i <= 3; i++) {
       const d = new Date(today.getTime() + i * DAY); const ds = d.toISOString().slice(0, 10);
