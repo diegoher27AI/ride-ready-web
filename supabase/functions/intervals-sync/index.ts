@@ -50,6 +50,51 @@ async function fetchIntervals(path: string, apiKey: string) {
   return res.json();
 }
 
+function addDays(iso: string, n: number) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// intervals.icu corta la respuesta en 1000 filas y devuelve las MAS VIEJAS. Pidiendo
+// 3 anos de bienestar de un solo golpe, los ultimos meses nunca llegaban: a Juan Diego
+// se le quedo congelado el 22 de julio, justo 1000 dias despues del primero.
+// Por eso se pide por ventanas de fechas, cada una muy por debajo del tope, y se juntan.
+const WINDOW_DAYS = 200;
+
+async function fetchByWindows(base: string, apiKey: string, oldest: string, newest: string) {
+  const out: Record<string, unknown>[] = [];
+  let from = oldest;
+  while (from <= newest) {
+    const to = addDays(from, WINDOW_DAYS - 1) > newest ? newest : addDays(from, WINDOW_DAYS - 1);
+    const sep = base.includes('?') ? '&' : '?';
+    const rows = await fetchIntervals(`${base}${sep}oldest=${from}&newest=${to}`, apiKey);
+    if (Array.isArray(rows)) {
+      // Si una ventana vuelve llena, el tope sigue mordiendo y faltarian dias en silencio.
+      if (rows.length >= 1000) throw new Error(`intervals.icu devolvio 1000 filas entre ${from} y ${to}: la ventana es muy grande`);
+      out.push(...rows);
+    }
+    from = addDays(to, 1);
+  }
+  return out;
+}
+
+// Quita repetidos (dos ventanas pueden traer el mismo dia en el borde) conservando el ultimo.
+function dedupe(rows: Record<string, unknown>[], key: string) {
+  const m = new Map<string, Record<string, unknown>>();
+  rows.forEach((r) => { const k = String(r[key] ?? ''); if (k) m.set(k, r); });
+  return [...m.values()];
+}
+
+// Guarda en tandas y REVISA el resultado. Antes se hacia un solo upsert gigante y no se
+// miraba el error: si fallaba, la app igual decia "Listo".
+async function saveAll(admin: any, table: string, rows: Record<string, unknown>[], onConflict: string) {
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await admin.from(table).upsert(rows.slice(i, i + 500), { onConflict });
+    if (error) throw new Error(`no se pudo guardar ${table}: ${error.message}`);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
   try {
@@ -74,11 +119,15 @@ Deno.serve(async (req) => {
     }
 
     const oldest = isoDaysAgo(DAYS_BACK);
-    const [activities, wellness, athlete] = await Promise.all([
-      fetchIntervals(`/api/v1/athlete/0/activities?oldest=${oldest}`, conn.api_key),
-      fetchIntervals(`/api/v1/athlete/0/wellness?oldest=${oldest}`, conn.api_key),
+    // Hasta manana, para que el dia de hoy entre completo sea cual sea la zona horaria.
+    const newest = isoDaysAgo(-1);
+    const [activitiesRaw, wellnessRaw, athlete] = await Promise.all([
+      fetchByWindows('/api/v1/athlete/0/activities', conn.api_key, oldest, newest),
+      fetchByWindows('/api/v1/athlete/0/wellness', conn.api_key, oldest, newest),
       fetchIntervals(`/api/v1/athlete/0`, conn.api_key).catch(() => null),
     ]);
+    const activities = dedupe(activitiesRaw, 'id');
+    const wellness = dedupe(wellnessRaw, 'id');
 
     const actRows = (activities as any[]).map((a) => ({
       user_id: userId,
@@ -108,8 +157,8 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     }));
 
-    if (actRows.length) await admin.from('activities').upsert(actRows, { onConflict: 'user_id,source_id' });
-    if (wellRows.length) await admin.from('wellness').upsert(wellRows, { onConflict: 'user_id,date' });
+    await saveAll(admin, 'activities', actRows, 'user_id,source_id');
+    await saveAll(admin, 'wellness', wellRows, 'user_id,date');
 
     // Perfil deportivo: peso, FTP, pulso maximo y zonas, de los ajustes de bici.
     let profileSaved = false;
@@ -135,7 +184,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ activities: actRows.length, wellness: wellRows.length, profile: profileSaved }), {
+    // El ultimo dia de bienestar con recuperacion de verdad: es lo que decide el dia.
+    const withRec = wellRows.filter((w) => w.readiness != null).map((w) => w.date).sort();
+    return new Response(JSON.stringify({
+      activities: actRows.length, wellness: wellRows.length, profile: profileSaved,
+      last_activity: actRows.map((a) => a.date).sort().slice(-1)[0] || null,
+      last_recovery: withRec.slice(-1)[0] || null,
+    }), {
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   } catch (e) {

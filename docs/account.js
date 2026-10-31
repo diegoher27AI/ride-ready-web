@@ -17,7 +17,8 @@
       connected: 'Ya tienes una conexion guardada.', not_connected: 'Todavia no has guardado tu clave.',
       err: 'Algo salio mal, intenta de nuevo.',
       sync: 'Traer mis datos', syncing: 'Trayendo tus datos de intervals.icu…',
-      sync_ok: (a, w) => `Listo: ${a} actividades y ${w} dias de bienestar.`,
+      sync_ok: (a, w, d) => `Listo: ${a} actividades y ${w} dias de bienestar.`
+        + (d ? ` Tu ultima recuperacion es del ${d}.` : ''),
       have: (a, d1, d2, w, wd) => `Guardado en tu cuenta: ${a} actividades, de ${d1} a ${d2}. Bienestar: ${w} dias, el ultimo ${wd}.`,
       have_none: 'Todavia no hay nada guardado. Toca "Traer mis datos".',
     },
@@ -33,7 +34,8 @@
       connected: 'You already have a saved connection.', not_connected: "You haven't saved your key yet.",
       err: 'Something went wrong, try again.',
       sync: 'Fetch my data', syncing: 'Fetching your data from intervals.icu…',
-      sync_ok: (a, w) => `Done: ${a} activities and ${w} wellness days.`,
+      sync_ok: (a, w, d) => `Done: ${a} activities and ${w} wellness days.`
+        + (d ? ` Your last recovery is from ${d}.` : ''),
       have: (a, d1, d2, w, wd) => `Stored in your account: ${a} activities, from ${d1} to ${d2}. Wellness: ${w} days, last one ${wd}.`,
       have_none: 'Nothing stored yet. Tap "Fetch my data".',
     },
@@ -229,7 +231,7 @@
     $('ra-sync-st').textContent = t('syncing');
     try {
       const data = await syncNow();
-      $('ra-sync-st').textContent = t('sync_ok')(data.activities, data.wellness);
+      $('ra-sync-st').textContent = t('sync_ok')(data.activities, data.wellness, data.last_recovery);
       showHave();
       if (window.dash && window.dash.refresh) window.dash.refresh();
     } catch (e) {
