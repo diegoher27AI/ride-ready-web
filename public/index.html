@@ -882,10 +882,15 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   function renderHeader() {
     const b = firstOf('brief'); if (!b) return;
     const c = dayCall();
-    const gd = c ? pd(c.date) : pd(b.generated_at);
+    // El ultimo dato de bienestar que es suyo de verdad (de su cuenta o escrito a mano),
+    // no el de los datos de ejemplo.
+    const mine = ownWellness();
+    const gd = c ? pd(c.date) : pd(todayIsoLocal());
     txt('hdr-date', uF('%A, %B %-d')(gd));
     // Con datos propios y frescos mandan las reglas, no el texto de ejemplo.
-    const level = c ? (c.level === 2 ? 'ok' : c.level === 1 ? 'warn' : 'bad') : (b.verdict_level === 'ok' ? 'ok' : b.verdict_level === 'bad' ? 'bad' : 'warn');
+    const level = c ? (c.level === 2 ? 'ok' : c.level === 1 ? 'warn' : 'bad')
+      : mine ? 'warn'
+      : (b.verdict_level === 'ok' ? 'ok' : b.verdict_level === 'bad' ? 'bad' : 'warn');
     if (c) {
       const t = callTargets(c.level, c.spike);
       txt('hdr-title', c.level === 0 ? L('Rest today', 'Hoy toca descansar') : c.level === 1 ? L('Go easy today', 'Hoy ve suave') : c.spike ? L('Train, but keep it zone 2', 'Entrena, pero quédate en zona 2') : L('Good to train today', 'Hoy puedes entrenar'));
@@ -896,6 +901,14 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
       if (c.stale) bits.push(L('Based on yesterday’s numbers: today’s have not arrived yet.', 'Con los números de ayer: los de hoy todavía no llegan.'));
       const text = bits.map((x) => x.charAt(0).toUpperCase() + x.slice(1)).join('. ');
       txt('hdr-sub', /[.!?]$/.test(text) ? text : text + '.');
+    } else if (mine) {
+      // Hay datos propios pero viejos. Se dice, en vez de caer al texto de ejemplo,
+      // que hacia parecer que la cuenta no estaba conectada.
+      const days = Math.max(1, Math.round((pd(todayIsoLocal()) - mine.dt) / DAY));
+      txt('hdr-title', L('Waiting for your numbers', 'Esperando tus números'));
+      txt('hdr-sub', L(
+        `Your last recovery is ${fmt0(mine.recovery)}% from ${dFmt(mine.dt)}, ${days} days ago. Tap Refresh, or open intervals.icu so Whoop syncs, and the call for today appears.`,
+        `Tu última recuperación es ${fmt0(mine.recovery)}% del ${dFmt(mine.dt)}, hace ${days} días. Toca Actualizar, o abre intervals.icu para que Whoop sincronice, y aparece la decisión de hoy.`));
     } else {
       txt('hdr-title', b.verdict);
       txt('hdr-sub', b.headline);
@@ -1048,6 +1061,14 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     return out;
   }
 
+  // ¿Este ciclista ya tiene datos suyos? (de su cuenta o escritos a mano, no los de ejemplo)
+  // Si los tiene, la app nunca debe caer en el contenido de muestra: es mas honesto decir
+  // que faltan datos de hoy que mostrar un entrenamiento que no es suyo.
+  function ownWellness() {
+    const wr = whoopRows() || [];
+    return wr.filter((x) => String(x.source || '') !== 'example' && isFinite(x.recovery)).slice(-1)[0] || null;
+  }
+
   // Lo que el entrenador dejo escrito para un dia, si lo hay.
   function planFor(iso) {
     const rows = rowsOf('plan') || [];
@@ -1179,6 +1200,22 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
         : lvl === 0
           ? L('Nothing to ride today. Walk, stretch, sleep early.', 'Hoy no se rueda. Caminar, estirar, dormir temprano.')
           : L('Your own session with watts and heart rate comes from the morning calculation, which is still being built. For now, follow your usual planned session.', 'Tu sesión propia con vatios y pulso sale del cálculo de cada mañana, que todavía se está construyendo. Por ahora, sigue tu sesión planificada de siempre.'));
+      return;
+    }
+    // Datos propios pero viejos: todavia no hay decision de hoy. Se dice, en vez de mostrar
+    // el entrenamiento de ejemplo como si fuera suyo.
+    const own = (!c || c.stale) && !mine ? ownWellness() : null;
+    if (own) {
+      if (card) card.hidden = false;
+      const days1 = $('sess-days'); if (days1) days1.replaceChildren();
+      const meta1 = $('wk-meta'); if (meta1) meta1.replaceChildren();
+      const ul1 = $('wk-steps'); if (ul1) ul1.replaceChildren();
+      const box1 = $('c-wk'); if (box1) box1.replaceChildren();
+      txt('wk-eyebrow', L('Today', 'Hoy'));
+      txt('wk-title', L('No session yet', 'Todavía sin sesión'));
+      txt('wk-purpose', L(
+        'Your numbers for today have not arrived. Tap Refresh, and your session appears. You can also ask your coach in the chat.',
+        'Tus números de hoy todavía no llegan. Toca Actualizar y aparece tu sesión. También puedes pedírsela a tu entrenador en el chat.'));
       return;
     }
     const rows = mine || rowsOf('sessions');
