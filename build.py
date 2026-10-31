@@ -35,6 +35,7 @@ tail = '''
 </div>
 <script src="importer.js"></script>
 <script src="account.js"></script>
+<script src="coach.js"></script>
 </body>
 </html>
 '''

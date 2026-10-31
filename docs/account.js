@@ -185,7 +185,19 @@
     }
     return data;
   }
-  window.rrAccount = { syncNow, sendWorkout };
+  // Le pregunta al entrenador. La clave de Claude vive en el servidor, nunca aqui.
+  async function chat(payload) {
+    if (!session) throw new Error(t('err'));
+    const { data, error } = await sb.functions.invoke('coach-chat', { body: payload });
+    if (error) {
+      let detail = '';
+      try { const body = await error.context.json(); if (body && body.error) detail = body.error; } catch (e) {}
+      console.error('coach-chat', error, detail);
+      throw new Error(detail || t('err'));
+    }
+    return data;
+  }
+  window.rrAccount = { syncNow, sendWorkout, chat, signedIn: () => !!session };
 
   async function onSync() {
     $('ra-sync').disabled = true;

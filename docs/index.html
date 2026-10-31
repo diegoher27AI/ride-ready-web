@@ -2065,6 +2065,49 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     safe(translateAll);
   }
   dash.onData(render);
+
+  // Lo que el chat del entrenador necesita saber para responder con datos de verdad,
+  // y la forma de aplicar lo que el entrenador decida cambiar.
+  window.rrCoach = {
+    context() {
+      const c = dayCall(); const s = pmcState(); const z = firstOf('zones') || {};
+      const w = whoopRows(); const wl = w && w.length ? w[w.length - 1] : null;
+      const tw = tweak(); const sess = (todaySession() || [])[0];
+      const acwrReady = !!(s && s.real.length >= 28);
+      return {
+        idioma: lang(),
+        hoy: todayIsoLocal(),
+        decision: c ? {
+          nivel: c.level === 2 ? 'entrenar' : c.level === 1 ? 'suave' : 'descanso',
+          recuperacion: c.rec,
+          bajo_un_nivel: c.downgraded,
+          por_que: c.why,
+          relacion_de_carga_alta: c.spike,
+          datos_de_ayer: c.stale,
+        } : null,
+        whoop: wl ? { fecha: wl.date, recuperacion: wl.recovery, vfc: wl.hrv, vfc_30d: wl.hrv_30d, pulso_reposo: wl.rhr, pulso_reposo_30d: wl.rhr_30d, sueno_h: wl.asleep_h } : null,
+        forma: s && s.last ? {
+          forma_fisica: s.last.fitness, fatiga: s.last.fatigue, frescura: s.last.form,
+          relacion_de_carga: acwrReady ? s.last.acwr : null,
+          hay_suficiente_historial: acwrReady, dias_de_historial: s ? s.real.length : 0,
+        } : null,
+        zonas: { ftp_w: z.ftp_w ?? null, peso_kg: z.weight_kg ?? null, pulso_max: z.hr_max ?? null, de: z.device || null },
+        entrenamiento_de_hoy: sess ? { titulo: sess.title, minutos: sess.duration_min, pasos: arr(sess.steps).map((x) => ({ paso: x.name, min: x.min, vatios: x.p })) } : null,
+        ajustes_de_hoy: { minutos: tw.mins || null, mas_suave: !!tw.rough, no_entrena: !!tw.skip },
+      };
+    },
+    apply(a) {
+      if (!a) return;
+      if (a.reset) { try { localStorage.removeItem(TWEAK_KEY); } catch (e) {} render(); return; }
+      const patch = {};
+      if (a.mins != null) patch.mins = a.mins;
+      if (a.rough != null) patch.rough = !!a.rough;
+      if (a.skip != null) patch.skip = !!a.skip;
+      if (a.skip) { patch.rough = false; }
+      if (Object.keys(patch).length) setTweak(patch);
+    },
+  };
+
   const named = location.hash.slice(1); if (['today', 'trends', 'history', 'model'].includes(named)) show(named);
 })();
 </script>
@@ -2072,5 +2115,6 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
 </div>
 <script src="importer.js"></script>
 <script src="account.js"></script>
+<script src="coach.js"></script>
 </body>
 </html>
