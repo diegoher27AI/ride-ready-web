@@ -440,7 +440,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     <div class="g" id="card-ef" data-source="power">
      <h3>Aerobic efficiency</h3>
      <div class="headline"><span class="v num" id="ef-v">—</span><span class="u">W per bpm</span><span class="delta" id="ef-d">—</span></div>
-     <div class="legend"><span><i style="background:var(--s5)"></i>Thursday fast</span><span><i style="background:var(--s20)"></i>Long ride</span><span><i style="background:var(--savg)"></i>Easy ride</span></div>
+     <div class="legend"><span><i style="background:var(--s5)"></i>Hard ride</span><span><i style="background:var(--s20)"></i>Long ride</span><span><i style="background:var(--savg)"></i>Easy ride</span></div>
      <div class="ch" id="c-ef"><div class="skel"></div></div>
      <p class="cap" style="margin:10px 0 0;">More watts for the same heart rate = a stronger engine. Compare rides of the same type.</p>
     </div>
@@ -1270,21 +1270,64 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
 
   function renderInsights() {
     const host = $('insights'); host.replaceChildren();
-    const s = pmcState(); const b = firstOf('brief');
+    const s = pmcState();
     const items = [];
-    if (s) {
-      const a = s.last.acwr;
-      items.push({ ic: 'gauge', c: a > 1.5 ? '#FF453A' : '#FF9F0A', t: 'Load spiked to ' + fmt2(a), p: 'Last 7 days are ' + fmt2(a) + 'x your 28-day average (a week ago: ' + fmt2(s.weekAgo.acwr) + '). Above 1.5 is where injuries and colds happen.' });
+    // Antes estas frases eran del ciclista de ejemplo y sonaban personales sin serlo:
+    // "tu pausa de julio", "tus noches bajo 6 h te cuestan unos 13 puntos", "eso pesa mas
+    // que mi lectura anterior". Ahora cada texto sale del numero que tiene al lado, y si
+    // el numero no es confiable todavia, la fila no aparece.
+    if (s && s.last) {
+      // La relacion de carga no sirve con poco historial: el calculo se dispara solo.
+      if (s.real.length >= 28 && isFinite(+s.last.acwr)) {
+        const a = +s.last.acwr;
+        const col = a > 1.5 ? '#FF453A' : a > 1.3 ? '#FF9F0A' : a < 0.8 ? '#0A84FF' : '#30D158';
+        const txt2 = a > 1.5
+          ? L('Your last 7 days are well above your month. This is where injuries and colds happen.', 'Tus últimos 7 días están muy por encima de tu mes. Ahí es donde aparecen lesiones y resfríos.')
+          : a > 1.3 ? L('A bit above your month. Fine for a week, not for three.', 'Un poco por encima de tu mes. Está bien por una semana, no por tres.')
+          : a < 0.8 ? L('Below your month. Room to add, if you feel good.', 'Por debajo de tu mes. Hay margen para sumar, si te sentís bien.')
+          : L('In the band that builds fitness without digging a hole.', 'En la banda que construye forma sin cavar un hueco.');
+        items.push({ ic: 'gauge', c: col, t: L('Load ratio ' + fmt2(a), 'Relación de carga ' + fmt2(a)), p: txt2 });
+      }
       const wr = whoopRows();
-      if (wr) { const wl = wr[wr.length - 1]; const l7 = wr.slice(-7);
-        items.push({ ic: 'heart', c: '#30D158', t: 'Your nervous system is coping', p: 'HRV ' + fmt1(wl.hrv_7d) + ' ms (7-day) vs ' + fmt1(wl.hrv_30d) + ' baseline, resting HR ' + fmt0(wl.rhr) + '. That outweighs my earlier read of the falling HIIT heart rate.' });
-        items.push({ ic: 'rest', c: '#7D7AFF', t: 'Sleep is the weak link', p: fmt1(d3.mean(l7, (d) => d.asleep_h)) + ' h a night this week vs a need near ' + fmt0(d3.mean(l7, (d) => d.need_h)) + ' h. Your nights under 6 h cost about 13 recovery points.' }); }
-      items.push({ ic: 'trend', c: '#0A84FF', t: 'Fitness ' + fmt0(s.last.fitness) + ', peak was ' + fmt0(s.peak.fitness), p: 'You are rebuilding after the July break. Recovery days pay back more than extra intensity right now.' });
+      const wl = wr && wr.length ? wr[wr.length - 1] : null;
+      if (wl && isFinite(wl.hrv_7d) && isFinite(wl.hrv_30d) && wl.hrv_30d > 0) {
+        const bajo = wl.hrv_7d < wl.hrv_30d * 0.95;
+        items.push({ ic: 'heart', c: bajo ? '#FF9F0A' : '#30D158',
+          t: bajo ? L('Your body is under strain', 'Tu cuerpo está exigido') : L('Your body is coping', 'Tu cuerpo lo está llevando bien'),
+          p: L(`HRV ${fmt1(wl.hrv_7d)} ms over 7 days against a ${fmt1(wl.hrv_30d)} ms baseline${isFinite(wl.rhr) ? `, resting heart rate ${fmt0(wl.rhr)}` : ''}.`,
+               `VFC ${fmt1(wl.hrv_7d)} ms en 7 días contra una base de ${fmt1(wl.hrv_30d)} ms${isFinite(wl.rhr) ? `, pulso en reposo ${fmt0(wl.rhr)}` : ''}.`) });
+      }
+      const dormidas = wr ? wr.slice(-7).map((d) => d.asleep_h).filter((v) => v != null) : [];
+      if (dormidas.length >= 3) {
+        const media = d3.mean(dormidas);
+        const pocas = dormidas.filter((v) => v < 6).length;
+        items.push({ ic: 'rest', c: media < 6.5 ? '#FF453A' : media < 7.5 ? '#FF9F0A' : '#7D7AFF',
+          t: media < 7 ? L('Sleep is the weak link', 'El sueño es el eslabón débil') : L('Sleep is holding up', 'El sueño viene bien'),
+          p: L(`${fmt1(media)} h a night over your last ${dormidas.length} nights${pocas ? `, ${pocas} of them under 6 h` : ''}.`,
+               `${fmt1(media)} h por noche en tus últimas ${dormidas.length} noches${pocas ? `, ${pocas} de ellas bajo 6 h` : ''}.`) });
+      }
+      if (s.peak && isFinite(+s.last.fitness) && isFinite(+s.peak.fitness) && +s.peak.fitness > 0) {
+        const pct = Math.round((+s.last.fitness / +s.peak.fitness) * 100);
+        items.push({ ic: 'trend', c: '#0A84FF',
+          t: L(`Fitness ${fmt0(s.last.fitness)}, your peak was ${fmt0(s.peak.fitness)}`, `Forma física ${fmt0(s.last.fitness)}, tu pico fue ${fmt0(s.peak.fitness)}`),
+          p: pct >= 97 ? L('You are at your best of this stretch.', 'Estás en tu mejor momento de este tramo.')
+            : L(`You are at ${pct}% of that peak, from ${dFmt(s.peak.dt)}.`, `Estás al ${pct}% de ese pico, del ${dFmt(s.peak.dt)}.`) });
+      }
     }
     const p = rowsOf('power');
-    if (p) {
-      const rows = p.map((d) => ({ ...d, dt: pd(d.date) })); const best = rows.reduce((x, d) => (+d.p5_wkg > +x.p5_wkg ? d : x), rows[0]); const last = rows.filter((d) => d.ride_type !== 'easy').sort((x, y) => x.dt - y.dt).slice(-1)[0];
-      items.push({ ic: 'bolt', c: '#D97706', t: '5-min power ' + fmt2(+last.p5_wkg) + ' W/kg', p: 'Best this year: ' + fmt2(+best.p5_wkg) + ' W/kg on ' + dFmt(best.dt) + '. Your top end comes back fastest once you are fresh, so it is the first thing to retest after a break.' });
+    if (p && p.length) {
+      const rows = p.map((d) => ({ ...d, dt: pd(d.date) })).filter((d) => isFinite(+d.p5_wkg)).sort((x, y) => x.dt - y.dt);
+      const duras = rows.filter((d) => d.ride_type !== 'easy');
+      const last = duras[duras.length - 1] || rows[rows.length - 1];
+      if (last) {
+        const best = rows.reduce((x, d) => (+d.p5_wkg > +x.p5_wkg ? d : x), rows[0]);
+        const esElMejor = best.date === last.date;
+        items.push({ ic: 'bolt', c: '#D97706',
+          t: L(`5-min power ${fmt2(+last.p5_wkg)} W/kg`, `Potencia de 5 min ${fmt2(+last.p5_wkg)} W/kg`),
+          p: esElMejor
+            ? L('That is your best of the period.', 'Ese es tu mejor registro del período.')
+            : L(`Your best is ${fmt2(+best.p5_wkg)} W/kg, on ${dFmt(best.dt)}.`, `Tu mejor registro es ${fmt2(+best.p5_wkg)} W/kg, del ${dFmt(best.dt)}.`) });
+      }
     }
     items.forEach((it) => {
       const row = el('div', 'ins'); const ic = el('div', 'ic'); ic.style.background = it.c + '2e'; ic.style.color = it.c; ic.appendChild(icon(it.ic)); row.appendChild(ic);
@@ -1390,11 +1433,17 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   function powerRows() { const p = rowsOf('power'); return p ? p.map((d) => ({ ...d, dt: pd(d.date), avg_wkg: +d.avg_wkg, p5_wkg: +d.p5_wkg, p20_wkg: +d.p20_wkg, ef: +d.ef, avg_w: +d.avg_w, avg_hr: +d.avg_hr, p5_w: +d.p5_w, p20_w: +d.p20_w })).sort((a, b) => a.dt - b.dt) : null; }
 
   function renderPower() {
-    const all = powerRows(); if (!all) return; const rows = all.filter((d) => d.ride_type !== 'easy'); const z = firstOf('zones');
-    const last = rows.filter((d) => d.ride_type !== 'easy').slice(-1)[0];
+    // Sin potenciometro no hay nada que mostrar aqui, y es mejor esconder la tarjeta
+    // que ensenar los vatios de otra persona.
+    const all = powerRows();
+    const rows = (all || []).filter((d) => d.ride_type !== 'easy' && isFinite(d.p5_wkg));
+    const card = $('card-pw'); if (card) card.hidden = rows.length < 2;
+    if (rows.length < 2) return;
+    const z = firstOf('zones');
+    const last = rows[rows.length - 1];
     const best = rows.reduce((a, d) => (d.p5_wkg > a.p5_wkg ? d : a), rows[0]);
     txt('pw-v', fmt2(last.p5_wkg)); txt('pw-d', fmt0((last.p5_wkg / best.p5_wkg - 1) * 100) + '% vs ' + dFmt(best.dt));
-    if (z) txt('pw-note', 'W/kg at ' + z.weight_kg + ' kg all year. Working FTP ' + z.ftp_w + ' W (' + fmt2(+z.ftp_wkg) + ' W/kg). Your 20-min bests point to where your FTP sits right now. Easy rides are left out here.');
+    if (z) txt('pw-note', 'Your best 5 and 20 min from each ride with a power meter. Working FTP ' + z.ftp_w + ' W (' + fmt2(+z.ftp_wkg) + ' W/kg). Your 20-min bests point to where your FTP sits right now. Easy rides are left out here.');
     const box = $('c-pw'); const { w, h, svg, tip } = frame(box, 240);
     const m = { t: 10, r: 30, b: 22, l: 4 };
     const x = d3.scaleUtc(d3.extent(rows, (d) => d.dt), [m.l + 6, w - m.r]);
@@ -1409,17 +1458,23 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     });
     svg.append('text').attr('class', 'lab').attr('x', x(best.dt)).attr('y', y(best.p5_wkg) - 9).attr('text-anchor', 'middle').attr('fill', '#F0A24A').text(fmt2(best.p5_wkg));
     xAxisTime(svg, x, h - m.b, w);
-    crosshair(svg, box, tip, rows, x, m, h, w, (d) => [{ t: dFmt(d.dt) + ' · ' + ({ 'Thu fast': 'Thursday fast', long: 'Long ride', easy: 'Easy ride' }[d.ride_type] || '') }, { c: '#D97706', t: '5 min ' + fmt2(d.p5_wkg) + ' W/kg (' + d.p5_w + ' W)' }, { c: '#B455F0', t: '20 min ' + fmt2(d.p20_wkg) + ' W/kg (' + d.p20_w + ' W)' }, { c: '#12A38A', t: 'Average ' + fmt2(d.avg_wkg) + ' W/kg' }]);
+    crosshair(svg, box, tip, rows, x, m, h, w, (d) => [{ t: dFmt(d.dt) + ' · ' + ({ hard: 'Hard ride', long: 'Long ride', easy: 'Easy ride' }[d.ride_type] || '') }, { c: '#D97706', t: '5 min ' + fmt2(d.p5_wkg) + ' W/kg (' + d.p5_w + ' W)' }, { c: '#B455F0', t: '20 min ' + fmt2(d.p20_wkg) + ' W/kg (' + d.p20_w + ' W)' }, { c: '#12A38A', t: 'Average ' + fmt2(d.avg_wkg) + ' W/kg' }]);
   }
 
   function renderEf() {
-    const rows = powerRows(); if (!rows) return;
-    const thu = rows.filter((d) => d.ride_type === 'Thu fast'); const l = thu[thu.length - 1]; const b = thu.reduce((a, d) => (d.ef > a.ef ? d : a), thu[0]);
+    // La eficiencia solo tiene sentido con vatios y pulso en la misma salida.
+    const all = powerRows();
+    const rows = (all || []).filter((d) => isFinite(d.ef) && d.ef > 0);
+    const card = $('card-ef'); if (card) card.hidden = rows.length < 2;
+    if (rows.length < 2) return;
+    const duras = rows.filter((d) => d.ride_type !== 'easy');
+    const base = duras.length >= 2 ? duras : rows;
+    const l = base[base.length - 1]; const b = base.reduce((a, d) => (d.ef > a.ef ? d : a), base[0]);
     txt('ef-v', fmt2(l.ef)); const e = $('ef-d'); const pct = (l.ef / b.ef - 1) * 100; e.textContent = fmt0(pct) + '% vs ' + dFmt(b.dt); e.className = 'delta ' + (pct < 0 ? 'dn' : 'up');
     const box = $('c-ef'); const { w, h, svg, tip } = frame(box, 190); const m = { t: 10, r: 30, b: 22, l: 4 };
     const x = d3.scaleUtc(d3.extent(rows, (d) => d.dt), [m.l + 6, w - m.r]); const y = d3.scaleLinear([0.85, 1.25], [h - m.b, m.t]);
     yAxis(svg, y, m.l, w, 4, d3.format('.2f'));
-    [['Thu fast', '#D97706'], ['long', '#B455F0'], ['easy', '#12A38A']].forEach(([t, c]) => {
+    [['hard', '#D97706'], ['long', '#B455F0'], ['easy', '#12A38A']].forEach(([t, c]) => {
       const pts = rows.filter((d) => d.ride_type === t);
       if (pts.length > 1) svg.append('path').datum(pts).attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d.ef)).curve(d3.curveMonotoneX)).attr('fill', 'none').attr('stroke', c).attr('stroke-width', 1.8).attr('opacity', .75);
       svg.append('g').selectAll('circle').data(pts).join('circle').attr('cx', (d) => x(d.dt)).attr('cy', (d) => y(d.ef)).attr('r', 4).attr('fill', c).attr('stroke', '#05070d').attr('stroke-width', 1.5);

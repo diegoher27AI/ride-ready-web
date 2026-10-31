@@ -120,6 +120,48 @@
     return { data: out, error: null };
   }
 
+  // La tarjeta de potencia, armada con las salidas propias. Antes mostraba la del ciclista
+  // de ejemplo (307 W, 4.09 W/kg) como si fuera suya, que es lo peor que puede hacer la app.
+  // Solo entran salidas con potenciometro: sin vatios no hay nada honesto que mostrar.
+  function computePower(acts, pesoPerfil) {
+    const rows = (acts || []).filter((a) => a.p5_w > 0 && a.moving_min > 0);
+    if (!rows.length) return [];
+    return rows.map((a) => {
+      const kg = +a.weight_kg > 0 ? +a.weight_kg : (+pesoPerfil > 0 ? +pesoPerfil : null);
+      const wkg = (w) => (kg && w > 0 ? Math.round((w / kg) * 100) / 100 : null);
+      // Como fue la salida, para poder separarlas en la grafica. Sin etiquetas inventadas:
+      // larga por duracion, suave si el esfuerzo por minuto fue bajo, el resto fuerte.
+      const porMin = (+a.relative_effort || 0) / (+a.moving_min || 1);
+      const ride_type = +a.moving_min >= 150 ? 'long' : porMin < 0.55 ? 'easy' : 'hard';
+      return {
+        date: a.date, ride_type,
+        avg_w: a.avg_watts != null ? Math.round(+a.avg_watts) : null,
+        avg_hr: a.avg_hr != null ? Math.round(+a.avg_hr) : null,
+        avg_wkg: wkg(+a.avg_watts),
+        p5_w: Math.round(+a.p5_w), p20_w: a.p20_w > 0 ? Math.round(+a.p20_w) : null,
+        p5_wkg: wkg(+a.p5_w), p20_wkg: wkg(+a.p20_w),
+        // Eficiencia aerobica: vatios por latido. Solo tiene sentido con pulso y vatios.
+        ef: a.avg_watts > 0 && a.avg_hr > 0 ? Math.round((+a.avg_watts / +a.avg_hr) * 100) / 100 : null,
+      };
+    }).filter((r) => r.p5_wkg != null);
+  }
+
+  // Carga por mes, de las actividades propias.
+  function computeMonthly(acts) {
+    const m = new Map();
+    (acts || []).forEach((a) => {
+      const k = String(a.date).slice(0, 7); if (k.length !== 7) return;
+      const o = m.get(k) || { month: k, sessions: 0, hours: 0, relative_effort_total: 0, calories_total: 0 };
+      o.sessions += 1;
+      o.hours += (+a.moving_min || 0) / 60;
+      o.relative_effort_total += +a.relative_effort || 0;
+      o.calories_total += +a.calories || 0;
+      m.set(k, o);
+    });
+    return [...m.values()].sort((a, b) => (a.month < b.month ? -1 : 1)).slice(-24)
+      .map((o) => ({ ...o, hours: Math.round(o.hours * 10) / 10, relative_effort_total: Math.round(o.relative_effort_total), calories_total: Math.round(o.calories_total) }));
+  }
+
   // Trae lo que ya sincronizamos de intervals.icu (Garmin, Karoo, Whoop) para quien inicio sesion.
   async function loadFromAccount() {
     if (!sb) return;
@@ -143,8 +185,11 @@
       name: x.name, date: x.goal_date, priority: x.priority, notes: x.notes,
     }));
     if (a.data && a.data.length) {
-      raw.activities = a.data.map((x) => ({ date: x.date, name: x.name, sport: x.sport, moving_min: x.moving_min, distance_km: x.distance_km, relative_effort: x.relative_effort, calories: x.calories, avg_hr: x.avg_hr, max_hr: x.max_hr, avg_watts: x.avg_watts }));
+      raw.activities = a.data.map((x) => ({ date: x.date, name: x.name, sport: x.sport, moving_min: x.moving_min, distance_km: x.distance_km, relative_effort: x.relative_effort, calories: x.calories, avg_hr: x.avg_hr, max_hr: x.max_hr, avg_watts: x.avg_watts, p5_w: x.p5_w, p20_w: x.p20_w, weight_kg: x.weight_kg }));
       raw.pmc = computePmc(raw.activities);
+      raw.monthly = computeMonthly(raw.activities);
+      // Historial de forma fisica: el mismo pmc, aligerado a una muestra por semana.
+      raw.fitness_hist = raw.pmc.filter((d, i) => i % 7 === 0).map((d) => ({ date: d.date, fitness: d.fitness, fatigue: d.fatigue }));
     }
     if (w.data && w.data.length) {
       raw.whoop = w.data.map((x) => ({ date: x.date, recovery: x.readiness, hrv: x.hrv, rhr: x.resting_hr, asleep_h: x.sleep_min != null ? Math.round((x.sleep_min / 60) * 100) / 100 : null, need_h: null, sleep_perf: null, debt_min: null, resp: null, deep_min: null, rem_min: null, source: 'intervals.icu' }));
@@ -164,6 +209,12 @@
       z.device = 'intervals.icu';
       z.ftp_note = ''; z.weight_note = '';
       raw.zones = [z];
+    }
+    // La potencia se arma al final, porque necesita el peso del perfil para los W/kg
+    // de las salidas que no traen el suyo propio.
+    if (a.data && a.data.length) {
+      const peso = (pr && pr.weight_kg) || (raw.zones && raw.zones[0] && raw.zones[0].weight_kg) || null;
+      raw.power = computePower(raw.activities, peso);
     }
   }
 

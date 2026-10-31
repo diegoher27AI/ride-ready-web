@@ -79,6 +79,33 @@ async function fetchByWindows(base: string, apiKey: string, oldest: string, newe
   return out;
 }
 
+// Mejor potencia de 5 y 20 min de cada salida. intervals.icu no la trae en la actividad:
+// hay que pedirla aparte, y devuelve los vatios en el mismo orden que los segundos pedidos.
+const SECS = [300, 1200];
+
+async function fetchPowerPeaks(apiKey: string, oldest: string, newest: string) {
+  const out = new Map<string, { p5: number | null; p20: number | null; kg: number | null }>();
+  let from = oldest;
+  while (from <= newest) {
+    const to = addDays(from, WINDOW_DAYS - 1) > newest ? newest : addDays(from, WINDOW_DAYS - 1);
+    try {
+      const rows = await fetchIntervals(
+        `/api/v1/athlete/0/activity-power-curves?oldest=${from}&newest=${to}&secs=${SECS.join(',')}&type=Ride`, apiKey);
+      (Array.isArray(rows) ? rows : []).forEach((r: any) => {
+        const w = Array.isArray(r.watts) ? r.watts : [];
+        const num = (v: unknown) => (typeof v === 'number' && v > 0 ? Math.round(v) : null);
+        out.set(String(r.id), { p5: num(w[0]), p20: num(w[1]), kg: typeof r.weight === 'number' && r.weight > 0 ? r.weight : null });
+      });
+    } catch (e) {
+      // Sin potenciometro, o sin permiso, esto puede no existir. No es motivo para
+      // que falle toda la sincronizacion: el resto de los datos si sirve.
+      console.error('power-curves', from, to, String(e));
+    }
+    from = addDays(to, 1);
+  }
+  return out;
+}
+
 // Quita repetidos (dos ventanas pueden traer el mismo dia en el borde) conservando el ultimo.
 function dedupe(rows: Record<string, unknown>[], key: string) {
   const m = new Map<string, Record<string, unknown>>();
@@ -121,10 +148,11 @@ Deno.serve(async (req) => {
     const oldest = isoDaysAgo(DAYS_BACK);
     // Hasta manana, para que el dia de hoy entre completo sea cual sea la zona horaria.
     const newest = isoDaysAgo(-1);
-    const [activitiesRaw, wellnessRaw, athlete] = await Promise.all([
+    const [activitiesRaw, wellnessRaw, athlete, peaks] = await Promise.all([
       fetchByWindows('/api/v1/athlete/0/activities', conn.api_key, oldest, newest),
       fetchByWindows('/api/v1/athlete/0/wellness', conn.api_key, oldest, newest),
       fetchIntervals(`/api/v1/athlete/0`, conn.api_key).catch(() => null),
+      fetchPowerPeaks(conn.api_key, oldest, newest),
     ]);
     const activities = dedupe(activitiesRaw, 'id');
     const wellness = dedupe(wellnessRaw, 'id');
@@ -142,6 +170,9 @@ Deno.serve(async (req) => {
       avg_hr: a.average_heartrate ?? null,
       max_hr: a.max_heartrate ?? null,
       avg_watts: a.icu_average_watts ?? null,
+      p5_w: peaks.get(String(a.id))?.p5 ?? null,
+      p20_w: peaks.get(String(a.id))?.p20 ?? null,
+      weight_kg: peaks.get(String(a.id))?.kg ?? null,
       updated_at: new Date().toISOString(),
     }));
 
