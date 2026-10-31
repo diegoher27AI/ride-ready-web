@@ -67,7 +67,10 @@ LAS HERRAMIENTAS
 - planificar_dias: escribe o reescribe dias completos con sus pasos. Es la que usas para armar el plan hacia la meta, y para cuando te digan "manana tengo fondo de 4 horas".
 - guardar_meta y borrar_meta: para las carreras y eventos del ciclista.
 - Usa las herramientas cuando de verdad haya algo que cambiar. Para preguntas, solo responde.
-- Despues de usar una herramienta, confirma en una o dos frases que quedo. No repitas todo el plan.`;
+- Despues de usar una herramienta, confirma en una o dos frases que quedo. No repitas todo el plan.
+- Lo que planificas se manda solo al calendario de intervals.icu, y de ahi al Garmin y al Karoo
+  del ciclista. No le digas que lo envie a mano. Si la herramienta te avisa que no se pudo
+  mandar, dile eso y por que.`;
 
 const STEP = {
   type: 'object',
@@ -208,6 +211,55 @@ function cleanDays(input: Record<string, unknown>, userId: string) {
   return rows;
 }
 
+// Pasa los pasos a la sintaxis de intervals.icu, que de ahi los convierte en un entrenamiento
+// y lo empuja al Garmin y al Karoo. Si un paso no trae vatios, va solo con su duracion.
+function stepsToText(steps: Record<string, unknown>[]) {
+  const head: Record<string, string> = { warmup: 'Warmup', cooldown: 'Cooldown', recovery: 'Main Set' };
+  return steps.map((s) => {
+    const p = Array.isArray(s.p) ? (s.p as number[]) : null;
+    const title = head[String(s.int)] || 'Main Set';
+    const watts = p && p.length === 2 ? ` ${Math.max(0, Math.round(p[0]))}-${Math.round(p[1])}W` : '';
+    return `${title}\n- ${s.min}m${watts}`;
+  }).join('\n\n');
+}
+
+// Manda al calendario de intervals.icu los dias que acaba de planificar el entrenador.
+// Cada evento lleva una etiqueta propia (external_id), y antes de escribir se borran solo
+// los que llevan esa etiqueta: los eventos que el ciclista creo a mano nunca se tocan.
+async function pushToIntervals(apiKey: string, rows: Record<string, unknown>[]) {
+  const auth = 'Basic ' + btoa(`API_KEY:${apiKey}`);
+  const headers = { Authorization: auth, 'Content-Type': 'application/json' };
+  const ids = rows.map((r) => ({ external_id: `rideready-${r.day}` }));
+
+  const del = await fetch('https://intervals.icu/api/v1/athlete/0/events/bulk-delete', {
+    method: 'PUT', headers, body: JSON.stringify(ids),
+  });
+  if (!del.ok && del.status !== 404) {
+    return { ok: false, detail: `no se pudieron limpiar los dias viejos (${del.status})` };
+  }
+
+  const events = rows
+    .filter((r) => r.decision !== 'descanso' && Array.isArray(r.steps) && (r.steps as unknown[]).length)
+    .map((r) => ({
+      category: 'WORKOUT',
+      type: 'Ride',
+      start_date_local: `${r.day}T00:00:00`,
+      external_id: `rideready-${r.day}`,
+      name: (r.title as string) || 'Ride Ready',
+      description: stepsToText(r.steps as Record<string, unknown>[]),
+    }));
+  if (!events.length) return { ok: true, sent: 0 };
+
+  const res = await fetch('https://intervals.icu/api/v1/athlete/0/events/bulk', {
+    method: 'POST', headers, body: JSON.stringify(events),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    return { ok: false, detail: `intervals.icu dijo que no (${res.status}) ${detail.slice(0, 120)}` };
+  }
+  return { ok: true, sent: events.length };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
   try {
@@ -270,7 +322,8 @@ Deno.serve(async (req) => {
     // Lo que el entrenador cambia: ajustes de un dia (los aplica la app) y lo que ya quedo
     // guardado en el servidor (plan y metas), para que la app sepa que tiene que recargar.
     const actions: Record<string, unknown>[] = [];
-    let touched = false;
+    let touched = false;      // hubo cambios en el servidor (plan o metas): la app recarga
+    let pushed = 0;           // cuantos entrenamientos se mandaron al calendario
 
     async function runTool(c: Anthropic.ToolUseBlock): Promise<string> {
       const input = (c.input || {}) as Record<string, unknown>;
@@ -286,7 +339,19 @@ Deno.serve(async (req) => {
         const { error } = await admin.from('planned_sessions').upsert(rows, { onConflict: 'user_id,day' });
         if (error) { console.error('planificar_dias', error); return 'No se pudo guardar el plan, intenta de nuevo.'; }
         touched = true;
-        return `Guardados ${rows.length} dias: del ${rows[0].day} al ${rows[rows.length - 1].day}.`;
+        let out = `Guardados ${rows.length} dias: del ${rows[0].day} al ${rows[rows.length - 1].day}.`;
+        // Y de una vez al calendario de intervals.icu, que de ahi llega al Garmin y al Karoo.
+        const { data: conn } = await admin.from('intervals_connections').select('api_key').eq('user_id', userId).maybeSingle();
+        if (!conn) {
+          out += ' No hay clave de intervals.icu guardada, asi que no se mandaron al calendario.';
+        } else {
+          const r = await pushToIntervals(conn.api_key, rows);
+          out += r.ok
+            ? (r.sent ? ` Y ${r.sent} ya quedaron en su calendario de intervals.icu.` : ' Ninguno tenia entrenamiento que mandar al calendario.')
+            : ` Se guardaron, pero no se pudieron mandar al calendario: ${r.detail}.`;
+          if (r.ok) pushed += r.sent || 0;
+        }
+        return out;
       }
       if (c.name === 'guardar_meta') {
         if (typeof input.nombre !== 'string' || !input.nombre.trim() || !isDay(input.fecha)) return 'Falta el nombre o la fecha de la meta.';
@@ -334,6 +399,7 @@ Deno.serve(async (req) => {
       action: actions.find((a) => a.day === today) || null,
       actions,
       reload: touched,
+      pushed,
       left: typeof used === 'number' ? Math.max(0, DAILY_LIMIT - used) : null,
     });
   } catch (e) {

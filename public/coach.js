@@ -9,6 +9,7 @@
       hello: '¿Qué tal? Pregúntame lo que sea de tu entrenamiento de hoy, o pídeme que lo cambie: "solo tengo 40 minutos", "amanecí mal", "hoy no puedo".',
       need_account: 'Entra a tu cuenta para hablar conmigo. Toca "Cuenta" arriba.',
       thinking: 'Pensando…', changed: 'Entrenamiento actualizado.', planned: 'Tu plan quedó guardado.',
+      pushed: (n) => `Plan guardado. ${n} ${n === 1 ? 'entrenamiento' : 'entrenamientos'} ya van camino a tu Garmin y tu Karoo.`,
       err: 'No pude responder. Intenta de nuevo.',
       left: (n) => `Te quedan ${n} mensajes hoy.`,
     },
@@ -18,6 +19,7 @@
       hello: "Hey. Ask me anything about today's training, or tell me to change it: \"I only have 40 minutes\", \"I feel rough\", \"I can't ride today\".",
       need_account: 'Sign in to talk to me. Tap "Account" above.',
       thinking: 'Thinking…', changed: 'Workout updated.', planned: 'Your plan is saved.',
+      pushed: (n) => `Plan saved. ${n} ${n === 1 ? 'workout is' : 'workouts are'} on the way to your Garmin and Karoo.`,
       err: "I couldn't answer. Try again.",
       left: (n) => `${n} messages left today.`,
     },
@@ -94,7 +96,10 @@
         const acts = (data && Array.isArray(data.actions) && data.actions.length) ? data.actions : (data && data.action ? [data.action] : []);
         if (acts.length) { window.rrCoach.applyAll(acts); add('note', t('changed')); }
         // El plan y las metas ya quedaron guardados en el servidor: hay que traerlos.
-        if (data && data.reload) { window.rrCoach.reload(); add('note', t('planned')); }
+        if (data && data.reload) {
+          window.rrCoach.reload();
+          add('note', data.pushed ? t('pushed')(data.pushed) : t('planned'));
+        }
       }
       if (data && typeof data.left === 'number' && data.left <= 5) add('note', t('left')(data.left));
     } catch (e) {

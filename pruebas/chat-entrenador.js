@@ -124,6 +124,17 @@ const ready = new Promise((r) => {
   click('rc-go'); await wait();
   ok('"volver al plan" deshace los ajustes', /suave/i.test(q('wk-title')));
 
+  console.log('\nEl plan se manda solo al calendario:');
+  window.eval(`window.__reply = { text: 'Listo, ahi quedo tu bloque.', reload: true, pushed: 12 }`);
+  doc.getElementById('rc-in').value = 'armame el plan de 2 semanas';
+  click('rc-go'); await wait();
+  ok('avisa que ya van camino al Garmin', msgs().some((x) => x.startsWith('note:') && /Garmin/.test(x)));
+  ok('dice cuantos entrenamientos', msgs().some((x) => x.startsWith('note:') && /12/.test(x)));
+  window.eval(`window.__reply = { text: 'Meta guardada.', reload: true }`);
+  doc.getElementById('rc-in').value = 'mi meta es el haute route';
+  click('rc-go'); await wait();
+  ok('si no hubo nada que mandar, no promete envios', msgs().filter((x) => x.startsWith('note:')).some((x) => /guard/i.test(x) && !/Garmin/.test(x)));
+
   console.log('\nCuando algo falla:');
   window.eval(`window.__reply = { __throw: 'Se acabo el saldo de la cuenta de Claude.' }`);
   doc.getElementById('rc-in').value = 'hola';
