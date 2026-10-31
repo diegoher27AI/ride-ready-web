@@ -89,9 +89,6 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
 .upd .ub[aria-busy="true"] svg { animation: spin 1s linear infinite; }
 .upd .ub.arm { background: rgba(10,132,255,.35); border-color: rgba(10,132,255,.7); }
 .upd .ust { width: 100%; text-align: center; font-size: 12px; color: var(--ink2); min-height: 15px; }
-.wbox { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: 100%; }
-.wbox label { display: grid; gap: 4px; font-size: 11px; color: var(--ink2); font-weight: 600; }
-.wbox input { width: 100%; min-width: 0; padding: 9px 8px; border-radius: 12px; border: 1px solid var(--hair); background: rgba(255,255,255,.08); color: var(--ink); font: 600 16px/1 ui-rounded, -apple-system, system-ui, sans-serif; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .upd .ub[aria-busy="true"] svg { animation: none; } }
 .jx-nav { position: sticky; top: 8px; z-index: 20; display: flex; justify-content: center; margin: 16px 0 6px; }
@@ -338,15 +335,8 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
    </div>
   </div>
 
-  <div class="upd" id="upd" data-source="strava_live">
+  <div class="upd" id="upd">
    <button type="button" class="ub" id="btn-refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Refresh</span></button>
-   <button type="button" class="ub" id="btn-claude"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg><span id="btn-claude-l">Update with Claude</span></button>
-   <div class="wbox" id="wbox" hidden>
-    <label for="w-rec">Recovery %<input id="w-rec" type="number" inputmode="numeric" min="0" max="100" placeholder="—"></label>
-    <label for="w-hrv">HRV ms<input id="w-hrv" type="number" inputmode="numeric" min="0" max="300" placeholder="—"></label>
-    <label for="w-rhr">Resting HR<input id="w-rhr" type="number" inputmode="numeric" min="20" max="120" placeholder="—"></label>
-    <label for="w-sl">Sleep h<input id="w-sl" type="number" inputmode="decimal" step="0.1" min="0" max="16" placeholder="—"></label>
-   </div>
    <div class="ust" id="upd-st" role="status"></div>
   </div>
 
@@ -437,7 +427,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     </div>
     <div class="legend"><span><i style="background:var(--blue)"></i>Fitness</span><span><i style="background:var(--pink)"></i>Fatigue</span><span><i style="background:var(--green)"></i>Form +</span><span><i style="background:var(--red)"></i>Form −</span><span><i style="background:rgba(255,255,255,.5)"></i>Dashed = plan</span></div>
     <div class="ch" id="c-pmc"><div class="skel"></div></div>
-    <p class="cap" style="margin:10px 0 0;">Load is Strava relative effort (heart-rate based), so MTB days count too. Fitness = 42-day average, fatigue = 7-day, form = yesterday's fitness minus fatigue.</p>
+    <p class="cap" style="margin:10px 0 0;">Load is relative effort from intervals.icu (heart-rate based), so MTB days count too. Fitness = 42-day average, fatigue = 7-day, form = yesterday's fitness minus fatigue.</p>
    </div>
 
    <div class="jx-cols" style="margin-top:14px;">
@@ -575,7 +565,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
    </div>
   </section>
 
-  <div class="foot">Data from Strava and Whoop · Analysis by Claude · Model retrained every morning at 4:15</div>
+  <div class="foot">Data from intervals.icu (Garmin, Karoo, Whoop) · Training aid, not medical advice</div>
  </div>
 </div>
 
@@ -598,30 +588,10 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   function el(tag, cls, t) { const e = document.createElement(tag); if (cls) e.className = cls; if (t != null) e.textContent = t; return e; }
   function txt(id, t) { const e = $(id); if (e) e.textContent = t == null ? '—' : t; }
   function rawRows(id) { const d = dash.data(id); return d.status === 'ok' && Array.isArray(d.data) ? d.data : null; }
-  function rowsOf(id) { if (id === 'activities') return mergedActs(); if (id === 'pmc') return mergedPmc(); return rawRows(id); }
-  function liveNew() {
-    const live = rawRows('strava_live'); const stored = rawRows('activities') || []; if (!live) return [];
-    const last = stored.reduce((m, a) => (a.date > m ? a.date : m), '');
-    return live.filter((a) => a.date > last || (a.date === last && !stored.some((b) => b.date === a.date && b.name === a.name && Math.abs(+b.moving_min - +a.moving_min) < 1.5)));
-  }
-  function mergedActs() {
-    const stored = rawRows('activities'); const add = liveNew(); if (!stored && !add.length) return null;
-    return (stored || []).concat(add.map((a) => ({ date: a.date, name: a.name, sport: a.sport, moving_min: a.moving_min, distance_km: a.distance_km, relative_effort: a.relative_effort, calories: a.calories, avg_hr: null, max_hr: null, avg_watts: null, live: true })));
-  }
-  function mergedPmc() {
-    const r = rawRows('pmc'); if (!r) return null; const add = liveNew(); if (!add.length) return r;
-    const rows = r.map((d) => ({ ...d })).sort((a, b) => (a.date < b.date ? -1 : 1));
-    const real = rows.filter((d) => !(d.projected === true || d.projected === 'true')); const lastReal = real[real.length - 1]; if (!lastReal) return r;
-    const todayIso = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
-    const loads = {}; add.slice().sort((a, b) => (a.start < b.start ? -1 : 1)).forEach((a, i, arr2) => { const prev = arr2[i - 1]; if (prev && Math.abs(new Date(a.start) - new Date(prev.start)) < 6e5) return; loads[a.date] = (loads[a.date] || 0) + (+a.relative_effort || 0); });
-    const sameDay = add.filter((a) => a.date === lastReal.date); if (sameDay.length) loads[lastReal.date] = (+lastReal.load || 0) + (loads[lastReal.date] || 0);
-    let i0 = rows.indexOf(lastReal); if (sameDay.length) i0 -= 1;
-    for (let d = new Date(lastReal.date + 'T00:00:00Z'); ; ) { d = new Date(d.getTime() + DAY); const iso = d.toISOString().slice(0, 10); if (iso > todayIso) break; let row = rows.find((x) => x.date === iso); if (!row) { row = { date: iso, load: 0, projected: false }; rows.push(row); } row.load = loads[iso] || 0; row.projected = false; row.live = true; }
-    if (sameDay.length) { lastReal.load = loads[lastReal.date]; lastReal.live = true; }
-    rows.sort((a, b) => (a.date < b.date ? -1 : 1));
-    for (let i = Math.max(1, i0 + 1); i < rows.length; i++) { const p = rows[i - 1], c = rows[i]; const F = +p.fitness, A = +p.fatigue, L = +c.load; c.form = Math.round((F - A) * 10) / 10; c.fitness = Math.round((F + (L - F) / 42) * 10) / 10; c.fatigue = Math.round((A + (L - A) / 7) * 10) / 10; const w7 = rows.slice(Math.max(0, i - 6), i + 1), w28 = rows.slice(Math.max(0, i - 27), i + 1); const s28 = d3.sum(w28, (x) => +x.load) / 4; c.acwr = s28 ? Math.round(d3.sum(w7, (x) => +x.load) / s28 * 100) / 100 : null; }
-    return rows;
-  }
+  function rowsOf(id) { return rawRows(id); }
+  // Antes la app mezclaba las actividades guardadas con una lista "en vivo" de Strava que
+  // entregaba el complemento. Eso ya no existe: todo llega por intervals.icu y queda guardado
+  // en la cuenta, asi que se lee directo.
   function firstOf(id) { const r = rowsOf(id); return r && r[0] ? r[0] : null; }
   const isProj = (d) => d.projected === true || d.projected === 'true';
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -1556,51 +1526,33 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   }
 
 
-  // ---------- refresh + update with Claude ----------
-  const RR_TRIGGER = 'trig_011YA9LHVpke9CCnJTstvKaV';
-  function localIso(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); }
+  // ---------- actualizar ----------
+  // Antes aqui vivia el boton "Actualizar con Claude", que disparaba la actualizacion del
+  // complemento por una herramienta de Claude. En la app propia eso no existe: Actualizar
+  // llama a intervals-sync. Tambien se fue el lector de 'strava_live': los entrenamientos
+  // vienen de intervals.icu, nunca de Strava.
   function renderUpd() {
-    const want = localIso(new Date(Date.now() - 3 * DAY)) + 'T00:00:00'; if (!sinceSet) { sinceSet = true; if ((dash.params().since || '') < want) { dash.setParams({ since: want }); return; } }
-    const st = $('upd-st'); const d = dash.data('strava_live'); const n = liveNew().length;
-    $('btn-refresh').setAttribute('aria-busy', String(d.status === 'loading' || !!d.refreshing));
-    if (armed) return;
-    if (d.status === 'ok') st.textContent = n ? n + ' new ' + (n === 1 ? 'activity' : 'activities') + ' from Strava added since this morning’s update.' : 'Up to date with Strava.';
-    else if (d.status === 'connect' || d.status === 'declined') st.textContent = 'Connect Strava to refresh from here.';
-    else if (d.status === 'error') st.textContent = 'Strava didn’t answer. Try again in a minute.';
+    const st = $('upd-st'); if (!st) return;
+    const signed = !!(window.rrAccount && window.rrAccount.signedIn && window.rrAccount.signedIn());
+    if (!signed) { st.textContent = L('Sign in to bring in your own data.', 'Entra a tu cuenta para traer tus datos.'); return; }
+    const w = ownWellness();
+    const a = (rowsOf('activities') || []).map((x) => x.date).sort().slice(-1)[0];
+    const hoy = todayIsoLocal();
+    if (!a) { st.textContent = L('Tap Refresh to bring in your history.', 'Toca Actualizar para traer tu historial.'); return; }
+    const partes = [];
+    partes.push(a >= hoy ? L('Activities up to today.', 'Actividades al día de hoy.')
+      : L(`Last activity ${dFmt(pd(a))}.`, `Última actividad el ${dFmt(pd(a))}.`));
+    if (w) partes.push(w.date >= hoy ? L('Recovery from today.', 'Recuperación de hoy.')
+      : L(`Recovery from ${dFmt(w.dt)}.`, `Recuperación del ${dFmt(w.dt)}.`));
+    st.textContent = partes.join(' ');
   }
-  let armed = false, sinceSet = false;
   $('btn-refresh').addEventListener('click', async () => {
     const btn = $('btn-refresh'); const st = $('upd-st'); const sync = window.rrAccount && window.rrAccount.syncNow;
     btn.setAttribute('aria-busy', 'true');
+    if (st) st.textContent = L('Fetching your data…', 'Trayendo tus datos…');
     if (sync) { try { await sync(); } catch (e) { st.textContent = String(e.message || e); } }
     dash.refresh();
     btn.setAttribute('aria-busy', 'false');
-  });
-  $('btn-claude').addEventListener('click', async () => {
-    const st = $('upd-st'), btn = $('btn-claude');
-    if (!armed) { armed = true; btn.classList.add('arm'); $('btn-claude-l').textContent = 'Tap again to start'; $('wbox').hidden = false; st.textContent = 'Claude re-runs your full morning update (about 10 minutes). Add today’s Whoop numbers if you have them.'; return; }
-    armed = false; btn.classList.remove('arm'); $('btn-claude-l').textContent = 'Update with Claude'; btn.setAttribute('aria-busy', 'true');
-    const v = (id) => { const x = $(id).value.trim(); return x === '' ? null : x; };
-    const w = { rec: v('w-rec'), hrv: v('w-hrv'), rhr: v('w-rhr'), sl: v('w-sl') };
-    const wtxt = (w.rec || w.hrv || w.rhr || w.sl) ? ' Today’s Whoop from the dashboard: recovery ' + (w.rec ?? '?') + '%, HRV ' + (w.hrv ?? '?') + ' ms, resting HR ' + (w.rhr ?? '?') + ' bpm, sleep ' + (w.sl ?? '?') + ' h. Record them as today’s Whoop numbers (as in WHEN HE REPLIES WITH TODAY’S WHOOP NUMBERS) before deciding.' : '';
-    const text = 'MANUAL UPDATE from the dashboard at ' + new Date().toString().slice(0, 21) + '. This is not the scheduled time: run the MORNING STEPS for today with everything Strava has right now (including today’s activities), retrain the model, update every dataset, then reply as usual.' + wtxt;
-    try {
-      const mcp = window.claude && claude.use ? await claude.use('mcp') : null;
-      if (!mcp) throw { code: 'unavailable' };
-      await mcp.callTool('Claude Code Remote', 'fire_trigger', { trigger_id: RR_TRIGGER, text });
-      st.textContent = 'Started ' + new Date().toTimeString().slice(0, 5) + '. You’ll get a notification when Claude finishes (about 10 minutes); this page updates itself.';
-      $('wbox').hidden = true; ['w-rec', 'w-hrv', 'w-rhr', 'w-sl'].forEach((id) => { $(id).value = ''; });
-    } catch (e) {
-      const c = e && e.code;
-      st.textContent = c === 'declined' || c === 'consent_required' || c === 'not_granted' ? 'Allow the Claude Code Remote connection for this page to start an update from here.' : c === 'rate_limited' ? 'Too many requests. Try again in a few minutes.' : 'Couldn’t start the update from here (' + (c || 'error') + '). Reply “update” to this morning’s brief instead.';
-    } finally { btn.setAttribute('aria-busy', 'false'); }
-  });
-  dash.loader('strava_live', {
-    description: 'Strava’s list of activities as one row per activity',
-    fn: ({ answer }) => {
-      const a = typeof answer === 'string' ? JSON.parse(answer) : answer; const list = (a && a.activities) || [];
-      return list.map((x) => ({ id: String(x.id), start: x.start_local, date: String(x.start_local).slice(0, 10), name: x.name, sport: x.sport_type, moving_min: Math.round(((x.summary && x.summary.moving_time) || 0) / 6) / 10, distance_km: Math.round(((x.summary && x.summary.distance) || 0) / 10) / 100, relative_effort: x.summary && x.summary.relative_effort != null ? x.summary.relative_effort : null, calories: x.summary ? (x.summary.total_calories ?? null) : null }));
-    }
   });
 
   // ---------- MODEL ----------
@@ -1634,7 +1586,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   }
   function renderDrivers() {
     const m = modelRow(); if (!m) return; const R = obj(m.recovery) || {}; const host = $('drv'); host.replaceChildren();
-    txt('drv-cap', 'Learned from ' + R.n_days + ' mornings of Whoop and Strava since ' + uF('%b %Y')(pd(R.since)) + '. Each bar is the change in next-morning recovery, holding everything else equal. Gray bars are too small to trust yet (journal answers need more data).');
+    txt('drv-cap', 'Learned from ' + R.n_days + ' mornings of Whoop and training since ' + uF('%b %Y')(pd(R.since)) + '. Each bar is the change in next-morning recovery, holding everything else equal. Gray bars are too small to trust yet (journal answers need more data).');
     const show = ['load_yday', 'sleep_h', 'load_2days', 'recovery_yday', 'alcohol', 'added_sugar', 'late_meal'];
     const eff = arr(R.effects).filter((e) => show.includes(e.factor)); const mx = 15;
     eff.forEach((e) => {
@@ -2078,7 +2030,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     'Next days': 'Próximos días', 'Reassessed every morning from your data.': 'Se recalcula cada mañana con tus datos.',
     'Fitness, fatigue & form': 'Forma física, fatiga y frescura', 'fitness': 'forma física', 'Year': 'Año', 'Dashed = plan': 'Discontinua = plan',
     'Form +': 'Frescura +', 'Form −': 'Frescura −',
-    "Load is Strava relative effort (heart-rate based), so MTB days count too. Fitness = 42-day average, fatigue = 7-day, form = yesterday's fitness minus fatigue.": 'La carga es el esfuerzo relativo de Strava (basado en el pulso), así que los días de montaña también cuentan. Forma física = promedio de 42 días, fatiga = 7 días, frescura = forma física de ayer menos fatiga.',
+    "Load is relative effort from intervals.icu (heart-rate based), so MTB days count too. Fitness = 42-day average, fatigue = 7-day, form = yesterday's fitness minus fatigue.": 'La carga es el esfuerzo relativo de intervals.icu (basado en el pulso), así que los días de montaña también cuentan. Forma física = promedio de 42 días, fatiga = 7 días, frescura = forma física de ayer menos fatiga.',
     'Load ratio': 'Relación de carga', '7 days vs 28-day avg': '7 días vs promedio de 28',
     'Green band 0.8–1.3 builds fitness safely. Above the red line (1.5) injury and illness risk climbs.': 'La banda verde 0.8–1.3 construye forma con seguridad. Sobre la línea roja (1.5) sube el riesgo de lesión y enfermedad.',
     'Aerobic efficiency': 'Eficiencia aeróbica', 'W per bpm': 'W por lpm', 'Thursday fast': 'Jueves rápido', 'Long ride': 'Rodada larga', 'Easy ride': 'Rodada suave',
@@ -2093,7 +2045,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     'What moves your recovery': 'Qué mueve tu recuperación',
     'Average next-morning recovery, from 280 days of your Whoop data and journal.': 'Recuperación promedio a la mañana siguiente, según tus datos y diario de Whoop.',
     'Average next-morning recovery, from your Whoop data and journal.': 'Recuperación promedio a la mañana siguiente, según tus datos y diario de Whoop.',
-    'Day after a big Strava day (relative effort 150+)': 'Día después de un día fuerte en Strava (esfuerzo relativo 150+)', 'Slept under 6 hours': 'Dormiste menos de 6 horas',
+    'Day after a big Strava day (relative effort 150+)': 'Día después de un día fuerte (esfuerzo relativo 150+)', 'Slept under 6 hours': 'Dormiste menos de 6 horas',
     'Had alcohol the day before': 'Alcohol el día anterior', 'Added sugar the day before': 'Azúcar añadida el día anterior', 'Ate close to bedtime': 'Comiste cerca de dormir',
     'Monthly load': 'Carga mensual', 'Relative effort per month. October is partial.': 'Esfuerzo relativo por mes. El mes actual va incompleto.', 'Relative effort per month. The current month is partial.': 'Esfuerzo relativo por mes. El mes actual va incompleto.',
     '2026 so far': '2026 hasta hoy', 'This year so far': 'Este año hasta hoy', 'Training days': 'Días de entrenamiento', 'Rest days': 'Días de descanso', 'Longest streak': 'Racha más larga', 'Training time': 'Tiempo de entrenamiento',
@@ -2109,10 +2061,10 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     'when its benefit peaks': 'cuando su beneficio llega al máximo', 'on your 20-min power': 'en tu potencia de 20 min', 'fitness today': 'forma física hoy',
     'All-time peak': 'Máximo histórico', 'Typical yearly peak': 'Pico anual típico', 'Fastest build': 'Construcción más rápida', 'Breaks of 2+ weeks': 'Pausas de 2+ semanas',
     'Is the model right?': '¿Acierta el modelo?', 'Recovery spin 45 min': 'Rodada suave 45 min', 'Zone 2, 2 h': 'Zona 2, 2 h', 'Sweet spot 3x10': 'Punto dulce 3x10',
-    'Long ride 4 h': 'Rodada larga 4 h', 'Race / very hard': 'Carrera / muy duro', 'Up to date with Strava.': 'Al día con Strava.',
-    'Connect Strava to refresh from here.': 'Conecta Strava para actualizar desde aquí.', 'Share cancelled.': 'Cancelado.',
-    'Data from Strava and Whoop · Analysis by Claude · Model retrained every morning at 4:15': 'Datos de Strava y Whoop · Análisis de Claude · El modelo se reentrena cada mañana a las 4:15',
-    'Data from Strava (and Whoop, if you add it) · Analysis by Claude · Model retrained every morning': 'Datos de Strava (y Whoop, si lo agregas) · Análisis de Claude · El modelo se reentrena cada mañana',
+    'Long ride 4 h': 'Rodada larga 4 h', 'Race / very hard': 'Carrera / muy duro', 'Share cancelled.': 'Cancelado.',
+    'Sign in to bring in your own data.': 'Entra a tu cuenta para traer tus datos.',
+    'Tap Refresh to bring in your history.': 'Toca Actualizar para traer tu historial.',
+    'Data from intervals.icu (Garmin, Karoo, Whoop) · Training aid, not medical advice': 'Datos de intervals.icu (Garmin, Karoo, Whoop) · Ayuda de entrenamiento, no consejo médico',
     'Your nervous system is coping': 'Tu sistema nervioso está asimilando', 'Sleep is the weak link': 'El sueño es el punto débil', 'Sleep is on track': 'El sueño va bien',
     'HRV is below your baseline': 'La VFC está bajo tu línea base',
     'You are rebuilding after the July break. Recovery days pay back more than extra intensity right now.': 'Estás reconstruyendo después de la pausa de julio. Ahora los días de recuperación rinden más que la intensidad extra.',
@@ -2130,7 +2082,6 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     [/^in 6 weeks, (.+)$/, 'en 6 semanas, $1'], [/^Your training since (\d{4})$/, 'Tu entrenamiento desde $1'], [/^peak (\d+)$/, 'pico $1'],
     [/^(\d+)% of your (\d{4}) peak$/, '$1% de tu pico de $2'], [/^(\d+)% of Jun peak$/, '$1% del pico de junio'], [/^year high: (\d+)$/, 'máximo del año: $1'],
     [/^(.+) · (\d+) days$/, '$1 · $2 días'], [/^vs (.+)$/, 'vs $1'], [/^likely (\d+)–(\d+)%$/, 'probable $1–$2%'], [/^8 h: (\d+)%$/, '8 h: $1%'],
-    [/^(\d+) new activit(?:y|ies) from Strava added since this morning’s update\.$/, (m, n) => n + (n === '1' ? ' actividad nueva de Strava' : ' actividades nuevas de Strava') + ' desde la actualización de la mañana.'],
     [/^What (\S+) does to (\S+) morning$/, (m, a, b) => 'Qué hace el ' + a + ' en la mañana del ' + b],
     [/^Fitness (\d+), peak was (\d+)$/, 'Forma física $1, el pico fue $2'], [/^Load spiked to (.+)$/, 'La carga subió a $1'], [/^Load ratio (.+)$/, 'Relación de carga $1'],
     [/^(\d+)% of (\S+) peak$/, '$1% del pico de $2'], [/^([−+-]?[\d.]+) vs (\S+) peak$/, '$1 vs pico de $2'], [/^([−+-]?[\d.]+) this week$/, '$1 esta semana'],
@@ -2145,7 +2096,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     [' h night (your recent average). Sleep 8 h and it rises to about ', ' h (tu promedio reciente). Si duermes 8 h sube a cerca de '],
     ['Predicted recovery on ', 'Recuperación pronosticada el '], [' for each option, at your usual ', ' para cada opción, con tus '],
     [' h of sleep. The thin line shows 8 h of sleep.', ' h de sueño habituales. La línea delgada muestra 8 h de sueño.'],
-    ['Learned from ', 'Aprendido de '], [' mornings of Whoop and Strava since ', ' mañanas de Whoop y Strava desde '],
+    ['Learned from ', 'Aprendido de '], [' mornings of Whoop and training since ', ' mañanas de Whoop y entrenamientos desde '],
     ['. Each bar is the change in next-morning recovery, holding everything else equal. Gray bars are too small to trust yet (journal answers need more data).', '. Cada barra es el cambio en la recuperación de la mañana siguiente, con todo lo demás igual. Las grises son muy pequeñas para confiar todavía.'],
     ['Fitted to ', 'Ajustado a '], [' of your 20-minute power efforts since ', ' de tus esfuerzos de 20 minutos desde '], [' (Zwift and road), against 12 years of training load.', ' (Zwift y ruta), contra 12 años de carga de entrenamiento.'],
     ['Your fatigue lingers much longer than the textbook 7 days, so hard blocks keep your power down for 2 to 3 weeks and your best form arrives about ', 'Tu fatiga dura mucho más que los 7 días de manual, así que los bloques duros bajan tu potencia por 2 a 3 semanas y tu mejor forma llega unos '],
@@ -2166,7 +2117,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     ['. Your top end comes back fastest once you are fresh, so it is the first thing to retest after a break.', '. Tu potencia máxima vuelve más rápido cuando estás fresco, así que es lo primero a probar de nuevo después de un descanso.'],
     ['W/kg at ', 'W/kg con '], [' kg all year. Working FTP ', ' kg todo el año. FTP de trabajo '], ['Your 20-min bests point to where your FTP sits right now. Easy rides are left out here.', 'Tus mejores 20 min indican dónde está tu FTP ahora mismo. Las rodadas suaves no se incluyen.'],
     [' vs 30-day', ' vs 30 días'], ['Whoop · ', 'Whoop · '], ['need ≈', 'necesitas ≈'], ['HRV ', 'VFC '], [' vs ', ' vs '], ['Weight', 'Peso'],
-    [' kg (your Strava weight). FTP ', ' kg (tu peso en Strava). FTP '], [' W/kg) from your Strava settings. ', ' W/kg) de tu configuración de Strava. '], [' Easy rides are left out here.', ' Las rodadas suaves no se incluyen.'],
+    [' kg (your Strava weight). FTP ', ' kg (tu peso en intervals.icu). FTP '], [' W/kg) from your Strava settings. ', ' W/kg) de tu perfil de intervals.icu. '], [' Easy rides are left out here.', ' Las rodadas suaves no se incluyen.'],
     ['Your fatigue lingers longer than the textbook 7 days, so hard blocks keep your power down for a while and', 'Tu fatiga dura más que los 7 días de manual, así que los bloques duros bajan tu potencia por un tiempo y'],
     ['Your fatigue clears about as fast as the textbook model, and', 'Tu fatiga se disipa casi tan rápido como en el modelo de manual, y'],
     [' your best form arrives about ', ' tu mejor forma llega unos '], [' days after the work. Fit quality: R² ', ' días después del trabajo. Calidad del ajuste: R² '],
