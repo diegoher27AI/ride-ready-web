@@ -18,6 +18,8 @@
       err: 'Algo salio mal, intenta de nuevo.',
       sync: 'Traer mis datos', syncing: 'Trayendo tus datos de intervals.icu…',
       sync_ok: (a, w) => `Listo: ${a} actividades y ${w} dias de bienestar.`,
+      have: (a, d1, d2, w, wd) => `Guardado en tu cuenta: ${a} actividades, de ${d1} a ${d2}. Bienestar: ${w} dias, el ultimo ${wd}.`,
+      have_none: 'Todavia no hay nada guardado. Toca "Traer mis datos".',
     },
     en: {
       btn: 'Account', title: 'Your account', close: 'Close',
@@ -32,6 +34,8 @@
       err: 'Something went wrong, try again.',
       sync: 'Fetch my data', syncing: 'Fetching your data from intervals.icu…',
       sync_ok: (a, w) => `Done: ${a} activities and ${w} wellness days.`,
+      have: (a, d1, d2, w, wd) => `Stored in your account: ${a} activities, from ${d1} to ${d2}. Wellness: ${w} days, last one ${wd}.`,
+      have_none: 'Nothing stored yet. Tap "Fetch my data".',
     },
   };
   const lang = () => { try { const v = localStorage.getItem('rr_lang'); if (v === 'en' || v === 'es') return v; } catch (e) {} const p = window.dash && dash.params ? dash.params() : {}; return p && p.lang === 'en' ? 'en' : 'es'; };
@@ -79,7 +83,27 @@
     $('ra-iv-st').textContent = data ? t('connected') : t('not_connected');
   }
 
-  function open() { $('ra-sheet').hidden = false; render(); if (session) loadConnection(); }
+  // Cuanto hay de verdad guardado en la cuenta. Sirve para contestar de un vistazo
+  // "¿se cargo todo mi historico?" sin tener que abrir intervals.icu.
+  async function showHave() {
+    const box = $('ra-have'); if (!box || !session) return;
+    const uid = session.user.id;
+    const one = (tab, col, asc) => sb.from(tab).select(col).eq('user_id', uid).order(col, { ascending: asc }).limit(1);
+    try {
+      const [ca, cw, a1, a2, w2] = await Promise.all([
+        sb.from('activities').select('date', { count: 'exact', head: true }).eq('user_id', uid),
+        sb.from('wellness').select('date', { count: 'exact', head: true }).eq('user_id', uid),
+        one('activities', 'date', true), one('activities', 'date', false), one('wellness', 'date', false),
+      ]);
+      const na = ca && ca.count ? ca.count : 0;
+      const nw = cw && cw.count ? cw.count : 0;
+      if (!na && !nw) { box.textContent = t('have_none'); return; }
+      const d = (r) => (r && r.data && r.data[0] ? r.data[0].date : '—');
+      box.textContent = t('have')(na, d(a1), d(a2), nw, d(w2));
+    } catch (e) { box.textContent = ''; }
+  }
+
+  function open() { $('ra-sheet').hidden = false; render(); if (session) { loadConnection(); showHave(); } }
   function close() { $('ra-sheet').hidden = true; }
 
   function build() {
@@ -113,6 +137,7 @@
         <div class="ra-st" id="ra-iv-st" role="status"></div>
         <button type="button" class="ra-btn" id="ra-sync" style="margin-top:10px"></button>
         <div class="ra-st" id="ra-sync-st" role="status"></div>
+        <div class="ra-st" id="ra-have" role="status"></div>
         <button type="button" class="ra-link" id="ra-signout"></button>
       </div>
     </div>`;
@@ -205,6 +230,7 @@
     try {
       const data = await syncNow();
       $('ra-sync-st').textContent = t('sync_ok')(data.activities, data.wellness);
+      showHave();
       if (window.dash && window.dash.refresh) window.dash.refresh();
     } catch (e) {
       $('ra-sync-st').textContent = t('err') + (e.message ? ' (' + e.message + ')' : '');
