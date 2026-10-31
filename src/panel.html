@@ -159,9 +159,6 @@
   background: linear-gradient(180deg, #2E9BFF, #0A6CF0); color: #fff; font: 700 17px/1 -apple-system, system-ui, sans-serif; text-decoration: none; cursor: pointer;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 8px 24px rgba(10,132,255,.45); }
 .cta svg { width: 18px; height: 18px; }
-.gc-howto { margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: var(--glass2); border: 1px solid var(--hair); font-size: 13px; line-height: 1.45; color: var(--ink2); }
-.gc-howto b { color: var(--ink); }
-.gc-howto ol { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
 .help { font-size: 12px; color: var(--ink3); margin: 10px 2px 0; line-height: 1.4; }
 .cond { display: flex; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 14px; background: rgba(255,214,10,.10); border: 1px solid rgba(255,214,10,.25); font-size: 13px; line-height: 1.35; color: #FFE680; }
 
@@ -383,22 +380,6 @@
     <div class="cond" id="wk-cond" hidden></div>
     <div class="ask-me" id="ask-me"></div>
     <ul class="steps" id="wk-steps"></ul>
-    <div class="gc-howto" id="gc-howto" data-dev="garmin">
-     <b>Build it in Garmin Connect</b>
-     <ol>
-      <li>In the Garmin Connect app: <b>More › Training &amp; Planning › Workouts › Create Workout › Bike</b>.</li>
-      <li>Add one step per row above, in order. Set each step's duration in time and its target to <b>Power (custom)</b> or <b>Heart rate (custom)</b> with the range shown. Toggle above between Power and Heart rate.</li>
-      <li>Save it, then <b>Send to Device</b>. Your Edge picks it up at the next sync, under Training › Workouts.</li>
-     </ol>
-    </div>
-    <div class="gc-howto" id="hh-howto" data-dev="hammerhead">
-     <b>Build it for Hammerhead Karoo</b>
-     <ol>
-      <li>Open the Hammerhead Dashboard (dashboard.hammerhead.io) or the Hammerhead Companion app and go to <b>Workouts › New workout</b>.</li>
-      <li>Add one step per row above, in order, with its duration and the <b>power</b> or <b>heart rate</b> range shown. Toggle above between Power and Heart rate.</li>
-      <li>Save it. The Karoo syncs it over Wi-Fi or the Companion app; start it from <b>Workouts</b> on the Karoo.</li>
-     </ol>
-    </div>
    </div>
 
    <div id="races" data-source="brief" style="margin-top:14px;"></div>
@@ -981,15 +962,6 @@
     }
   }
 
-  function renderDevice() {
-    const z = firstOf('zones') || {}; const d = String(z.device || '').toLowerCase();
-    const g = $('gc-howto'), h = $('hh-howto'); if (!g || !h) return;
-    g.hidden = d === 'hammerhead'; h.hidden = d === 'garmin';
-  }
-  // Arma el entrenamiento de hoy con la decision real y tus zonas, con la misma forma que
-  // 'sessions' (pasos con potencia y pulso), para que la tarjeta no muestre un ejemplo.
-  // En "sesion planificada" (verde sin pico) todavia no hay un entrenamiento propio que armar:
-  // eso sale del calculo de cada manana, que es la parte que falta construir.
   // ---------- lo que el ciclista le pide a la app, por dia ----------
   // Se guarda en el telefono, con una entrada por fecha. Los dias que ya pasaron se borran
   // solos, asi que esto no crece sin control.
@@ -1157,7 +1129,6 @@
   }
 
   function renderWorkout() {
-    safe(renderDevice);
     safe(renderAskMe);
     const ftp = (firstOf('zones') || {}).ftp_w ? +firstOf('zones').ftp_w : 264;
     const card = $('card-workout');
@@ -1944,19 +1915,6 @@
     'This week': 'Esta semana', "Done, today and what's planned.": 'Lo hecho, hoy y lo planificado.',
     'Rest': 'Descanso', 'Spin': 'Suave', 'Gym': 'Gimnasio', 'Easy': 'Suave', 'Long': 'Larga', 'Sweet spot': 'Punto dulce', 'Travel': 'Viaje',
     'Next ride': 'Próxima rodada', 'Time': 'Tiempo', 'Work': 'Trabajo', 'Intensity': 'Intensidad', 'Power': 'Potencia', 'Heart rate': 'Pulso',
-    'Build it in Garmin Connect': 'Créalo en Garmin Connect', 'In the Garmin Connect app:': 'En la app Garmin Connect:',
-    'More › Training & Planning › Workouts › Create Workout › Bike': 'Más › Entrenamiento y planificación › Entrenamientos › Crear entrenamiento › Ciclismo',
-    "Add one step per row above, in order. Set each step's duration in time and its target to": 'Agrega un paso por cada fila de arriba, en orden. Pon la duración de cada paso en tiempo y su objetivo en',
-    'Power (custom)': 'Potencia (personalizada)', 'Heart rate (custom)': 'Frecuencia cardíaca (personalizada)', 'or': 'o',
-    'with the range shown. Toggle above between Power and Heart rate.': 'con el rango indicado. Cambia arriba entre Potencia y Pulso.',
-    'Save it, then': 'Guárdalo y luego', 'Send to Device': 'Enviar al dispositivo',
-    '. Your Edge picks it up at the next sync, under Training › Workouts.': '. Tu Edge lo recibe en la próxima sincronización, en Entrenamiento › Entrenamientos.',
-    'Build it for Hammerhead Karoo': 'Créalo para Hammerhead Karoo',
-    'Open the Hammerhead Dashboard (dashboard.hammerhead.io) or the Hammerhead Companion app and go to': 'Abre el panel de Hammerhead (dashboard.hammerhead.io) o la app Companion y entra a',
-    'Add one step per row above, in order, with its duration and the': 'Agrega un paso por cada fila de arriba, en orden, con su duración y el rango de',
-    'power': 'potencia', 'heart rate': 'pulso', 'range shown. Toggle above between Power and Heart rate.': 'indicado. Cambia arriba entre Potencia y Pulso.',
-    'Save it. The Karoo syncs it over Wi-Fi or the Companion app; start it from': 'Guárdalo. El Karoo lo sincroniza por Wi-Fi o con la app Companion; inícialo desde',
-    'on the Karoo.': 'en el Karoo.',
     'Goals': 'Metas', 'Countdown and where this block fits.': 'Cuenta regresiva y dónde encaja este bloque.', 'days': 'días',
     "Coach's read": 'Lectura del entrenador', 'Why today looks the way it does.': 'Por qué hoy se ve así.',
     'Next days': 'Próximos días', 'Reassessed every morning from your data.': 'Se recalcula cada mañana con tus datos.',
