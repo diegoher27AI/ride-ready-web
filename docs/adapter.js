@@ -108,11 +108,22 @@
     const { data } = await sb.auth.getSession();
     if (!data || !data.session) return;
     const uid = data.session.user.id;
-    const [a, w, p] = await Promise.all([
+    const since = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+    const [a, w, p, pl, go] = await Promise.all([
       sb.from('activities').select('*').eq('user_id', uid).order('date', { ascending: true }),
       sb.from('wellness').select('*').eq('user_id', uid).order('date', { ascending: true }),
       sb.from('athlete_profile').select('*').eq('user_id', uid).maybeSingle(),
+      sb.from('planned_sessions').select('*').eq('user_id', uid).gte('day', since).order('day', { ascending: true }),
+      sb.from('goals').select('*').eq('user_id', uid).order('goal_date', { ascending: true }),
     ]);
+    // El plan que armo el entrenador y las metas del ciclista.
+    raw.plan = (pl && pl.data ? pl.data : []).map((x) => ({
+      date: x.day, decision: x.decision, title: x.title, purpose: x.purpose,
+      note: x.note, steps: x.steps || [], source: x.source,
+    }));
+    raw.goals = (go && go.data ? go.data : []).map((x) => ({
+      name: x.name, date: x.goal_date, priority: x.priority, notes: x.notes,
+    }));
     if (a.data && a.data.length) {
       raw.activities = a.data.map((x) => ({ date: x.date, name: x.name, sport: x.sport, moving_min: x.moving_min, distance_km: x.distance_km, relative_effort: x.relative_effort, calories: x.calories, avg_hr: x.avg_hr, max_hr: x.max_hr, avg_watts: x.avg_watts }));
       raw.pmc = computePmc(raw.activities);

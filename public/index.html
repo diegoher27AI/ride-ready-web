@@ -980,24 +980,27 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
         const done = doneNow;
         const re = d3.sum(done, (a) => +a.relative_effort);
         if (done.length) { cls = re >= 70 ? 'hard' : 'done'; ic = sportIcon(done[0].sport, done[0].name); label = 'RE ' + fmt0(re); } else { cls = 'rest'; ic = 'rest'; label = 'Rest'; }
-      } else if (i === 0) {
-        // Hoy, sin actividad todavia: manda la decision de hoy, no un plan de ejemplo.
-        const c = dayCall();
-        const t = c && !c.stale ? callTargets(c.level, c.spike) : null;
-        if (c && !c.stale) {
-          cls = c.level === 0 ? 'rest' : 'done'; ic = c.level === 0 ? 'rest' : 'bike';
-          label = c.level === 0 ? L('Rest', 'Descanso') : c.level === 1 ? L('Easy', 'Suave') : c.spike ? 'Z2' : L('Train', 'Entrenar');
-        } else { cls = 'plan'; ic = 'bike'; label = '—'; }
       } else {
-        // Dias que vienen: solo se muestran si hay un plan de verdad. El plan propio sale del
-        // calculo de cada manana, que todavia no existe, asi que por ahora quedan vacios en vez
-        // de mostrar etiquetas de ejemplo que no significan nada.
-        const p = plan.find((x) => x.day === ds);
-        const lab = p ? String(p.label || '') : '';
-        if (!lab || /example/i.test(lab)) { cls = 'plan'; ic = 'bike'; label = ''; }
-        else {
-          if (/rest/i.test(lab)) { cls = 'rest'; ic = 'rest'; } else if (/gym/i.test(lab)) { ic = 'gym'; } else ic = 'bike';
-          label = /easy/i.test(lab) ? L('Easy', 'Suave') : /rest/i.test(lab) ? L('Rest', 'Descanso') : /recovery|spin/i.test(lab) ? L('Spin', 'Suave') : /gym/i.test(lab) ? L('Gym', 'Pesas') : /endurance/i.test(lab) ? 'Z2' : /sweet/i.test(lab) ? 'Sweet spot' : /long/i.test(lab) ? L('Long', 'Larga') : lab.split(' ')[0];
+        // Manda lo que el entrenador dejo planificado para ese dia.
+        const mine = planFor(ds);
+        const tw = tweak(ds);
+        if (tw.skip) { cls = 'rest'; ic = 'rest'; label = L('Off', 'Libre'); }
+        else if (mine) {
+          const dec = tw.rough && mine.decision === 'entrenar' ? 'suave' : mine.decision;
+          cls = dec === 'descanso' ? 'rest' : dec === 'suave' ? 'done' : 'hard';
+          ic = dec === 'descanso' ? 'rest' : 'bike';
+          label = dec === 'descanso' ? L('Rest', 'Descanso') : dec === 'suave' ? L('Easy', 'Suave') : L('Train', 'Entrenar');
+        } else if (i === 0) {
+          // Hoy sin plan del entrenador: entran las reglas como respaldo.
+          const c = dayCall();
+          if (c && !c.stale) {
+            const lvl = tw.rough ? Math.max(0, c.level - 1) : c.level;
+            cls = lvl === 0 ? 'rest' : 'done'; ic = lvl === 0 ? 'rest' : 'bike';
+            label = lvl === 0 ? L('Rest', 'Descanso') : lvl === 1 ? L('Easy', 'Suave') : c.spike ? 'Z2' : L('Train', 'Entrenar');
+          } else { cls = 'plan'; ic = 'bike'; label = '—'; }
+        } else {
+          // Dias futuros sin plan: vacios. Pidele al entrenador que los arme.
+          cls = 'plan'; ic = 'bike'; label = '';
         }
       }
       const dot = el('div', 'dot ' + cls); dot.appendChild(icon(ic)); cell.appendChild(dot);
@@ -1014,16 +1017,30 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   // 'sessions' (pasos con potencia y pulso), para que la tarjeta no muestre un ejemplo.
   // En "sesion planificada" (verde sin pico) todavia no hay un entrenamiento propio que armar:
   // eso sale del calculo de cada manana, que es la parte que falta construir.
-  // ---------- lo que el ciclista le pide a la app para hoy ----------
-  // Se guarda en el telefono y solo vale para hoy: manana vuelve a mandar la decision del dia.
-  const TWEAK_KEY = 'rr_today';
+  // ---------- lo que el ciclista le pide a la app, por dia ----------
+  // Se guarda en el telefono, con una entrada por fecha. Los dias que ya pasaron se borran
+  // solos, asi que esto no crece sin control.
+  const TWEAK_KEY = 'rr_tweaks';
   function todayIsoLocal() { const n = new Date(); return new Date(n - n.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); }
-  function tweak() {
-    try { const t = JSON.parse(localStorage.getItem(TWEAK_KEY) || '{}'); return t && t.date === todayIsoLocal() ? t : {}; } catch (e) { return {}; }
+  function allTweaks() {
+    let all = {};
+    try { all = JSON.parse(localStorage.getItem(TWEAK_KEY) || '{}') || {}; } catch (e) { all = {}; }
+    const today = todayIsoLocal(); let pruned = false;
+    Object.keys(all).forEach((d) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < today) { delete all[d]; pruned = true; } });
+    if (pruned) { try { localStorage.setItem(TWEAK_KEY, JSON.stringify(all)); } catch (e) {} }
+    return all;
   }
-  function setTweak(patch) {
-    const t = { ...tweak(), ...patch, date: todayIsoLocal() };
-    try { localStorage.setItem(TWEAK_KEY, JSON.stringify(t)); } catch (e) {}
+  function tweak(iso) { return allTweaks()[iso || todayIsoLocal()] || {}; }
+  function setTweak(patch, iso) {
+    const day = iso || todayIsoLocal();
+    const all = allTweaks();
+    all[day] = { ...(all[day] || {}), ...patch };
+    try { localStorage.setItem(TWEAK_KEY, JSON.stringify(all)); } catch (e) {}
+    render();
+  }
+  function clearTweak(iso) {
+    const all = allTweaks(); delete all[iso || todayIsoLocal()];
+    try { localStorage.setItem(TWEAK_KEY, JSON.stringify(all)); } catch (e) {}
     render();
   }
   // Reescala los pasos al tiempo disponible: el calentamiento y el enfriamiento se encogen
@@ -1059,10 +1076,41 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     return out;
   }
 
+  // Lo que el entrenador dejo escrito para un dia, si lo hay.
+  function planFor(iso) {
+    const rows = rowsOf('plan') || [];
+    const r = rows.find((x) => x.date === iso);
+    if (!r) return null;
+    return { ...r, steps: arr(obj(r.steps)) };
+  }
+
   function todaySession() {
-    const c = dayCall(); if (!c || c.stale) return null;
     const tw = tweak();
     if (tw.skip) return null;                             // "hoy no puedo entrenar"
+    // Manda el plan del entrenador. Las reglas de abajo solo entran si todavia no hay plan.
+    const iso = todayIsoLocal();
+    const p = planFor(iso);
+    if (p) {
+      if (p.decision === 'descanso' || !p.steps.length) return null;
+      const steps = fitToMinutes(p.steps.map((s) => ({
+        name: s.name, min: +s.min, int: s.int || 'active',
+        p: arr(obj(s.p)).length === 2 ? arr(obj(s.p)).map(Number) : [0, 0],
+        hr: arr(obj(s.hr)).length === 2 ? arr(obj(s.hr)).map(Number) : null,
+      })), tw.mins);
+      const extra = [];
+      if (p.note) extra.push(p.note);
+      if (tw.rough) extra.push(L('You said you feel rough, so this is lighter than planned.', 'Dijiste que te sientes mal, así que esto va más suave de lo planificado.'));
+      if (tw.mins) extra.push(L(`Fitted to the ${tw.mins} minutes you have.`, `Ajustado a los ${tw.mins} minutos que tienes.`));
+      return [{
+        date: iso, when: 'AM',
+        title: p.title || L('Today’s session', 'Sesión de hoy'),
+        purpose: [p.purpose].concat(extra).filter(Boolean).join(' '),
+        condition: L('Bike, power + HR.', 'Bici, potencia y pulso.'),
+        steps, duration_min: steps.reduce((a, s) => a + s.min, 0),
+        fromCoach: true,
+      }];
+    }
+    const c = dayCall(); if (!c || c.stale) return null;
     const z = firstOf('zones');
     const pz = z ? arr(obj(z.power_zones)) : []; const hz = z ? arr(obj(z.heart_rate_zones)) : [];
     const find = (list, re) => list.find((x) => re.test(String(x.label || ''))) || null;
@@ -1246,20 +1294,40 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   }
 
   function renderPlan() {
-    const b = firstOf('brief'); if (!b) return;
+    const b = firstOf('brief');
+    const todayIso = todayIsoLocal(); const today = pd(todayIso);
+    const mine = (rowsOf('plan') || []).filter((p) => p.date > todayIso).slice(0, 6);
+    const goals = (rowsOf('goals') || []).filter((g) => g.date >= todayIso);
+
+    // Los proximos dias: los que armo el entrenador, y si no hay, los del ejemplo.
     const ul = $('plan'); ul.replaceChildren();
-    arr(b.plan).forEach((p) => {
+    const rows = mine.length
+      ? mine.map((p) => ({ day: p.date, label: p.title || (p.decision === 'descanso' ? L('Rest', 'Descanso') : p.decision === 'suave' ? L('Easy ride', 'Rodada suave') : L('Training', 'Entrenamiento')), detail: p.purpose || p.note || '' }))
+      : (b ? arr(b.plan) : []);
+    rows.forEach((p) => {
       const li = el('li'); const d = el('div', 'pd'); d.appendChild(document.createTextNode(wdFmt(pd(p.day)))); d.appendChild(el('b', 'num', String(pd(p.day).getUTCDate()))); li.appendChild(d);
       const body = el('div'); body.appendChild(el('div', 'pl', p.label)); body.appendChild(el('div', 'pt', p.detail)); li.appendChild(body); ul.appendChild(li);
     });
-    const host = $('races'); host.replaceChildren(); const card = el('div', 'g'); card.appendChild(el('h3', null, 'Goals')); card.appendChild(el('p', 'cap', 'Countdown and where this block fits.')); host.appendChild(card);
-    const today = pd(b.generated_at);
-    arr(b.races).forEach((r) => {
+
+    const host = $('races'); host.replaceChildren();
+    const card = el('div', 'g'); card.appendChild(el('h3', null, L('Goals', 'Metas')));
+    card.appendChild(el('p', 'cap', goals.length
+      ? L('Countdown and where this block fits.', 'Cuenta regresiva y dónde encaja este bloque.')
+      : L('No goals yet. Tell your coach what you are training for.', 'Todavía no hay metas. Cuéntale a tu entrenador para qué entrenas.')));
+    host.appendChild(card);
+
+    // Metas de verdad si las hay; si no, las del ejemplo.
+    const list = goals.length
+      ? goals.map((g) => ({ n: g.name, d: g.date, from: null, note: g.notes || '' }))
+      : (b ? arr(b.races).filter((r) => pd(r.d) >= today) : []);
+    list.forEach((r) => {
       const days = Math.round((pd(r.d) - today) / DAY);
-      const prog = clamp((today - pd(r.from)) / (pd(r.d) - pd(r.from)), 0, 1);
+      const from = r.from ? pd(r.from) : new Date(pd(r.d).getTime() - 180 * DAY);
+      const prog = clamp((today - from) / (pd(r.d) - from), 0, 1);
       const race = el('div', 'race'); race.style.padding = '12px 0'; race.style.borderTop = '1px solid var(--hair)';
-      const l = el('div'); l.appendChild(el('div', 'big num', String(days))); l.appendChild(el('div', 'unit', 'days')); race.appendChild(l);
-      const rr = el('div'); rr.appendChild(el('div', 'name', r.n)); rr.appendChild(el('div', 'when', uF('%a %b %-d, %Y')(pd(r.d)) + ' · ' + r.note));
+      const l = el('div'); l.appendChild(el('div', 'big num', String(days))); l.appendChild(el('div', 'unit', L('days', 'días'))); race.appendChild(l);
+      const rr = el('div'); rr.appendChild(el('div', 'name', r.n));
+      rr.appendChild(el('div', 'when', uF('%a %b %-d, %Y')(pd(r.d)) + (r.note ? ' · ' + r.note : '')));
       const bar = el('div', 'bar'); const fill = el('i'); fill.style.width = (prog * 100).toFixed(0) + '%'; bar.appendChild(fill); rr.appendChild(bar);
       race.appendChild(rr); card.appendChild(race);
     });
@@ -2074,9 +2142,17 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
       const w = whoopRows(); const wl = w && w.length ? w[w.length - 1] : null;
       const tw = tweak(); const sess = (todaySession() || [])[0];
       const acwrReady = !!(s && s.real.length >= 28);
+      const today = todayIsoLocal();
+      const acts = rowsOf('activities') || [];
       return {
         idioma: lang(),
-        hoy: todayIsoLocal(),
+        hoy: today,
+        // Las metas del ciclista y lo que ya hay planificado, para que el entrenador no
+        // reescriba a ciegas ni repita lo que ya dejo escrito.
+        metas: (rowsOf('goals') || []).map((g) => ({ nombre: g.name, fecha: g.date, prioridad: g.priority, notas: g.notes })),
+        plan_actual: (rowsOf('plan') || []).filter((p) => p.date >= today).slice(0, 60)
+          .map((p) => ({ fecha: p.date, decision: p.decision, titulo: p.title, minutos: arr(obj(p.steps)).reduce((a, x) => a + (+x.min || 0), 0) || null })),
+        ultimos_entrenamientos: acts.slice(-14).map((a) => ({ fecha: a.date, que: a.name, deporte: a.sport, minutos: a.moving_min, esfuerzo: a.relative_effort })),
         decision: c ? {
           nivel: c.level === 2 ? 'entrenar' : c.level === 1 ? 'suave' : 'descanso',
           recuperacion: c.rec,
@@ -2096,16 +2172,21 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
         ajustes_de_hoy: { minutos: tw.mins || null, mas_suave: !!tw.rough, no_entrena: !!tw.skip },
       };
     },
+    // Aplica un ajuste de un dia. El plan y las metas no pasan por aqui: esos ya quedaron
+    // guardados en el servidor y entran al recargar.
     apply(a) {
       if (!a) return;
-      if (a.reset) { try { localStorage.removeItem(TWEAK_KEY); } catch (e) {} render(); return; }
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(a.day || '') ? a.day : todayIsoLocal();
+      if (a.reset) { clearTweak(day); return; }
       const patch = {};
       if (a.mins != null) patch.mins = a.mins;
       if (a.rough != null) patch.rough = !!a.rough;
       if (a.skip != null) patch.skip = !!a.skip;
-      if (a.skip) { patch.rough = false; }
-      if (Object.keys(patch).length) setTweak(patch);
+      if (a.skip) patch.rough = false;
+      if (Object.keys(patch).length) setTweak(patch, day);
     },
+    applyAll(list) { (Array.isArray(list) ? list : []).forEach((a) => this.apply(a)); },
+    reload() { if (window.dash && dash.refresh) dash.refresh(); },
   };
 
   const named = location.hash.slice(1); if (['today', 'trends', 'history', 'model'].includes(named)) show(named);

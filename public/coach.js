@@ -8,7 +8,7 @@
       ph: 'Escribe lo que quieras preguntar…', send: 'Enviar',
       hello: '¿Qué tal? Pregúntame lo que sea de tu entrenamiento de hoy, o pídeme que lo cambie: "solo tengo 40 minutos", "amanecí mal", "hoy no puedo".',
       need_account: 'Entra a tu cuenta para hablar conmigo. Toca "Cuenta" arriba.',
-      thinking: 'Pensando…', changed: 'Entrenamiento de hoy actualizado.',
+      thinking: 'Pensando…', changed: 'Entrenamiento actualizado.', planned: 'Tu plan quedó guardado.',
       err: 'No pude responder. Intenta de nuevo.',
       left: (n) => `Te quedan ${n} mensajes hoy.`,
     },
@@ -17,7 +17,7 @@
       ph: 'Ask me anything…', send: 'Send',
       hello: "Hey. Ask me anything about today's training, or tell me to change it: \"I only have 40 minutes\", \"I feel rough\", \"I can't ride today\".",
       need_account: 'Sign in to talk to me. Tap "Account" above.',
-      thinking: 'Thinking…', changed: "Today's workout updated.",
+      thinking: 'Thinking…', changed: 'Workout updated.', planned: 'Your plan is saved.',
       err: "I couldn't answer. Try again.",
       left: (n) => `${n} messages left today.`,
     },
@@ -90,7 +90,12 @@
       const reply = (data && data.text) || t('err');
       add('coach', reply);
       history.push({ role: 'assistant', content: reply });
-      if (data && data.action && window.rrCoach) { window.rrCoach.apply(data.action); add('note', t('changed')); }
+      if (window.rrCoach) {
+        const acts = (data && Array.isArray(data.actions) && data.actions.length) ? data.actions : (data && data.action ? [data.action] : []);
+        if (acts.length) { window.rrCoach.applyAll(acts); add('note', t('changed')); }
+        // El plan y las metas ya quedaron guardados en el servidor: hay que traerlos.
+        if (data && data.reload) { window.rrCoach.reload(); add('note', t('planned')); }
+      }
       if (data && typeof data.left === 'number' && data.left <= 5) add('note', t('left')(data.left));
     } catch (e) {
       dots(false);
