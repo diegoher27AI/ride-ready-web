@@ -375,6 +375,10 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     <p class="cap" id="call-cap">Set by this morning's Whoop recovery.</p>
     <div class="rule" id="rule"></div>
     <div class="ask" id="ask" hidden></div>
+    <div id="cal-box" hidden style="margin-top:12px">
+     <button type="button" class="pet-act pet-act-main" id="cal-btn"></button>
+     <div class="pet-act-st" id="cal-st" role="status" style="font-size:13px;margin-top:6px;color:var(--ink2)"></div>
+    </div>
    </div>
 
    <div class="g" id="card-week" data-source="activities brief">
@@ -763,6 +767,26 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     return { title: L('Planned session', 'Sesión planificada'), detail: L('Follow today’s workout below.', 'Sigue el entrenamiento de hoy, abajo.') };
   }
 
+  // Texto del entrenamiento en la sintaxis de intervals.icu (lo que entiende para armar los pasos).
+  // Solo arma el texto cuando hay un numero real que mandar: en "sesion planificada" (sin numeros
+  // propios todavia, eso es el calculo de cada manana que falta construir) no hay nada que enviar.
+  function callWorkoutText(level, spike) {
+    const z = firstOf('zones');
+    const pz = z ? arr(obj(z.power_zones)) : []; const hz = z ? arr(obj(z.heart_rate_zones)) : [];
+    const find = (list, re) => list.find((x) => re.test(String(x.label || ''))) || null;
+    const z1p = find(pz, /Z1|Recovery/i), z2p = find(pz, /Z2|Endurance/i);
+    const rng = (x, lo, hi) => (x && x.min != null && x.max != null ? `${x.min}-${x.max}W` : `${lo}-${hi}W`);
+    if (level === 1) {
+      const warm = rng(z1p, 90, 120), main = rng(z2p, 110, 150), cool = rng(z1p, 80, 100);
+      return { name: L('Recovery spin', 'Rodada suave'), text: `Warmup\n- 8m ${warm}\n\nMain Set\n- 32m ${main}\n\nCooldown\n- 5m ${cool}` };
+    }
+    if (level === 2 && spike) {
+      const warm = rng(z1p, 100, 130), main = rng(z2p, 140, 190), cool = rng(z1p, 90, 110);
+      return { name: L('Zone 2 ride', 'Rodada en zona 2'), text: `Warmup\n- 10m ${warm}\n\nMain Set\n- 55m ${main}\n\nCooldown\n- 10m ${cool}` };
+    }
+    return null;
+  }
+
   function renderCall() {
     const w = whoopRows(); if (!w || !w.length) return;
     const last = w[w.length - 1]; const c = dayCall(); const isToday = !!c && !c.stale;
@@ -788,6 +812,30 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
       ask.appendChild(el('b', null, L('No fresh recovery yet. ', 'Todavía no hay recuperación fresca. ')));
       ask.appendChild(document.createTextNode(L('Connect intervals.icu in Account, or add today’s numbers in Load data.', 'Conecta intervals.icu en Cuenta, o escribe los números de hoy en Cargar datos.')));
     } else ask.hidden = true;
+    renderCalBtn(c);
+  }
+
+  // Manda el entrenamiento de hoy al calendario de intervals.icu (de ahi llega solo al Garmin y al Karoo).
+  // Solo aparece cuando hay un entrenamiento con numeros propios que mandar (no en "sesion planificada"
+  // generica, esa parte todavia no esta construida) y cuando hay sesion iniciada.
+  function renderCalBtn(c) {
+    const box = $('cal-box'); if (!box) return;
+    const wk = c && !c.stale && window.rrAccount ? callWorkoutText(c.level, c.spike) : null;
+    if (!wk) { box.hidden = true; return; }
+    box.hidden = false;
+    const btn = $('cal-btn'), st = $('cal-st');
+    btn.textContent = L('Send to my calendar', 'Enviar a mi calendario');
+    btn.onclick = async () => {
+      btn.disabled = true; st.textContent = L('Sending…', 'Enviando…');
+      try {
+        const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+        await window.rrAccount.sendWorkout({ date: todayIso, name: wk.name, description: wk.text });
+        st.textContent = L('Sent. It will reach your Garmin and Karoo through intervals.icu.', 'Enviado. Llega solo a tu Garmin y tu Karoo a través de intervals.icu.');
+      } catch (e) {
+        st.textContent = L('Could not send it: ', 'No se pudo enviar: ') + (e && e.message ? e.message : '');
+      }
+      btn.disabled = false;
+    };
   }
 
   function renderHrv() {

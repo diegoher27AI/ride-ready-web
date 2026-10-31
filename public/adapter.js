@@ -138,11 +138,31 @@
     }
   }
 
+  // Los datos de ejemplo quedan fijos en la fecha en que se generaron. Para que siempre se vean
+  // frescos (sin tener que regenerarlos a mano cada tanto), se corren todas sus fechas la misma
+  // cantidad de dias que paso desde entonces hasta hoy. Si hay cuenta real conectada, loadFromAccount
+  // despues reemplaza estos datos por los de verdad, asi que este corrimiento no les afecta.
+  function shiftDates(v, days) {
+    if (Array.isArray(v)) return v.map((x) => shiftDates(x, days));
+    if (v && typeof v === 'object') { const o = {}; for (const k in v) o[k] = shiftDates(v[k], days); return o; }
+    if (typeof v === 'string') {
+      const m = v.match(/^(\d{4}-\d{2}-\d{2})(T.*)?$/);
+      if (m) { const d = new Date(m[1] + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10) + (m[2] || ''); }
+    }
+    return v;
+  }
+
   async function loadAll() {
     const ids = await fetch('data/index.json', { cache: 'no-cache' }).then((r) => r.json());
     await Promise.all(ids.map(async (id) => {
       try { const j = await fetch('data/' + id + '.json', { cache: 'no-cache' }).then((r) => r.json()); raw[id] = Array.isArray(j) ? j : j.rows || []; } catch (e) { delete raw[id]; }
     }));
+    const anchor = raw.brief && raw.brief[0] && raw.brief[0].generated_at;
+    if (anchor) {
+      const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+      const shift = Math.round((Date.parse(todayIso + 'T00:00:00Z') - Date.parse(anchor + 'T00:00:00Z')) / 864e5);
+      if (shift) Object.keys(raw).forEach((id) => { raw[id] = shiftDates(raw[id], shift); });
+    }
     try { await loadFromAccount(); } catch (e) { console.error('No se pudo traer la cuenta', e); }
     rebuild();
     ready = true;

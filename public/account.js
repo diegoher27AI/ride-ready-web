@@ -172,7 +172,20 @@
     }
     return data;
   }
-  window.rrAccount = { syncNow };
+
+  // Manda el entrenamiento del dia al calendario de intervals.icu (de ahi llega solo al Garmin y al Karoo).
+  async function sendWorkout(payload) {
+    if (!session) return null;
+    const { data, error } = await sb.functions.invoke('send-workout', { body: payload });
+    if (error) {
+      let detail = error.message || '';
+      try { const body = await error.context.json(); if (body && body.error) detail = body.error; } catch (e) {}
+      console.error('send-workout', error, detail);
+      throw new Error(detail || t('err'));
+    }
+    return data;
+  }
+  window.rrAccount = { syncNow, sendWorkout };
 
   async function onSync() {
     $('ra-sync').disabled = true;

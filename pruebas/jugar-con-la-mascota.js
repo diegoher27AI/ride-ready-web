@@ -13,6 +13,20 @@ const data = {};
 JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'index.json'))).forEach((id) => {
   data[id] = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', id + '.json')));
 });
+// Mismo corrimiento de fechas que adapter.js (shiftDates): si no, el gato de esta prueba
+// aparece "muerto" solo porque paso tiempo desde que se generaron los datos de ejemplo.
+(function shiftExampleDates() {
+  function shift(v, days) {
+    if (Array.isArray(v)) return v.map((x) => shift(x, days));
+    if (v && typeof v === 'object') { const o = {}; for (const k in v) o[k] = shift(v[k], days); return o; }
+    if (typeof v === 'string') { const m = v.match(/^(\d{4}-\d{2}-\d{2})(T.*)?$/); if (m) { const d = new Date(m[1] + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10) + (m[2] || ''); } }
+    return v;
+  }
+  const anchor = data.brief && data.brief[0] && data.brief[0].generated_at; if (!anchor) return;
+  const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  const days = Math.round((Date.parse(todayIso + 'T00:00:00Z') - Date.parse(anchor + 'T00:00:00Z')) / 864e5);
+  if (days) Object.keys(data).forEach((id) => { data[id] = shift(data[id], days); });
+})();
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const dom = new JSDOM(html, { runScripts: 'outside-only', virtualConsole: vc, pretendToBeVisual: true, url: 'https://example.test/' });
 const { window } = dom;
