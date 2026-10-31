@@ -224,7 +224,26 @@
     }
     return data;
   }
-  window.rrAccount = { syncNow, sendWorkout, chat, signedIn: () => !!session };
+  // En que punto va la configuracion. Lo usa la guia de primeros pasos para marcar
+  // cada paso como hecho de verdad, en vez de dar por sentado que el ciclista lo hizo.
+  async function status() {
+    const base = { signedIn: !!session, email: session ? session.user.email : null, hasKey: false, activities: 0, wellness: 0 };
+    if (!session) return base;
+    const uid = session.user.id;
+    try {
+      const [conn, ca, cw] = await Promise.all([
+        sb.from('intervals_connections').select('api_key').eq('user_id', uid).maybeSingle(),
+        sb.from('activities').select('date', { count: 'exact', head: true }).eq('user_id', uid),
+        sb.from('wellness').select('date', { count: 'exact', head: true }).eq('user_id', uid),
+      ]);
+      base.hasKey = !!(conn && conn.data && conn.data.api_key);
+      base.activities = (ca && ca.count) || 0;
+      base.wellness = (cw && cw.count) || 0;
+    } catch (e) {}
+    return base;
+  }
+
+  window.rrAccount = { syncNow, sendWorkout, chat, signedIn: () => !!session, status, openPanel: () => open() };
 
   async function onSync() {
     $('ra-sync').disabled = true;

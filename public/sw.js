@@ -4,8 +4,8 @@
 // Antes esto era al reves (primero lo guardado) y por eso cada cambio exigia cerrar
 // la app por completo para verlo, y el icono viejo se quedaba pegado. Ahora, con
 // conexion siempre ves lo ultimo; sin conexion ves lo que quedo guardado.
-const CACHE = 'rr-shell-v20';
-const SHELL = ['./', 'index.html', 'adapter.js', 'importer.js', 'account.js', 'coach.js', 'vendor/d3.min.js', 'vendor/supabase.js', 'manifest.webmanifest', 'icons/icon-192-v2.png', 'icons/icon-512-v2.png', 'icons/apple-touch-icon-v2.png'];
+const CACHE = 'rr-shell-v21';
+const SHELL = ['./', 'index.html', 'adapter.js', 'importer.js', 'account.js', 'primeros-pasos.js', 'coach.js', 'vendor/d3.min.js', 'vendor/supabase.js', 'manifest.webmanifest', 'icons/icon-192-v2.png', 'icons/icon-512-v2.png', 'icons/apple-touch-icon-v2.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
