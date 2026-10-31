@@ -963,10 +963,16 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     const p = rowsOf('power'); const lastP = p ? p.map((d) => ({ ...d, dt: pd(d.date) })).filter((d) => d.ride_type !== 'easy').sort((x, y) => x.dt - y.dt).slice(-1)[0] : null;
     const chips = $('chips'); chips.replaceChildren();
     const chip = (k, v, d, tone) => { const c = el('div', 'chip' + (tone ? ' tone-' + tone : '')); c.appendChild(el('div', 'k', k)); c.appendChild(el('div', 'v num', v)); c.appendChild(el('div', 'd', d)); chips.appendChild(c); };
-    if (b) chip('Days without rest', String(b.streak_days_no_rest), 'year high: 20', +b.streak_days_no_rest >= 10 ? 'bad' : 'ok');
+    const acts = rowsOf('activities');
+    // La racha sale de tus actividades. Si no hay ninguna, no se inventa con el ejemplo.
+    if (acts && acts.length) {
+      const hoyIso = todayIsoLocal();
+      const racha = noRestStreak(acts, hoyIso);
+      const tope = longestNoRestStreak(acts, hoyIso);
+      chip('Days without rest', String(racha), tope ? 'year high: ' + tope : '', racha >= 10 ? 'bad' : 'ok');
+    }
     chip('Fitness', fmt0(last.fitness), Math.round(fitPct * 100) + '% of ' + uF('%b')(peak.dt) + ' peak', null);
     if (lastP) chip('Best 5 min', fmt2(+lastP.p5_wkg) + ' W/kg', lastP.p5_w + ' W · ' + dFmt(lastP.dt), null);
-    const acts = rowsOf('activities');
     if (wr) { const l7 = wr.slice(-7); const sl = d3.mean(l7, (d) => d.asleep_h); chip('Sleep, last 7', fmt1(sl) + ' h', 'need \u2248' + fmt0(d3.mean(l7, (d) => d.need_h)) + ' h', sl < 6.5 ? 'bad' : sl < 7.5 ? 'warn' : 'ok'); }
   }
 
@@ -1467,9 +1473,38 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     svg.append('text').attr('class', 'lab').attr('x', x(pk.month) + x.bandwidth() / 2).attr('y', y(+pk.relative_effort_total) - 5).attr('text-anchor', 'middle').attr('fill', '#9DCBFF').text(fmt0(+pk.relative_effort_total));
   }
 
+  // El resumen del año salido de tus actividades. El conjunto ytd_summary servido es de
+  // ejemplo y nadie lo recalculaba, asi que el Historial mostraba la temporada de otro.
+  function ytdFromActivities(acts) {
+    const hoyIso = todayIsoLocal();
+    const ini = hoyIso.slice(0, 4) + '-01-01';
+    const year = acts.filter((a) => a.date >= ini && a.date <= hoyIso);
+    if (!year.length) return null;
+    const trained = trainedDaySet(year);
+    const total_days = Math.round((pd(hoyIso) - pd(ini)) / DAY) + 1;
+    // La racha mas larga del año, con sus fechas.
+    let best = 0, bStart = '', bEnd = '', run = 0, rStart = '';
+    for (let i = 0; i < total_days; i++) {
+      const iso = new Date(pd(ini).getTime() + i * DAY).toISOString().slice(0, 10);
+      if (trained.has(iso)) { if (!run) rStart = iso; run++; if (run > best) { best = run; bStart = rStart; bEnd = iso; } }
+      else run = 0;
+    }
+    const sport_counts = {};
+    year.forEach((a) => { const s = a.sport || 'Other'; sport_counts[s] = (sport_counts[s] || 0) + 1; });
+    return {
+      period_start: ini, period_end: hoyIso, total_days,
+      total_activities: year.length, training_days: trained.size, rest_days: total_days - trained.size,
+      total_hours: Math.round(year.reduce((s, a) => s + (+a.moving_min || 0), 0) / 6) / 10,
+      total_relative_effort: Math.round(year.reduce((s, a) => s + (+a.relative_effort || 0), 0)),
+      longest_no_rest_streak_days: best, longest_no_rest_streak_start: bStart || ini, longest_no_rest_streak_end: bEnd || ini,
+      sport_counts, note: '',
+    };
+  }
+
   // ---------- HISTORY ----------
   function renderHistory() {
-    const y = firstOf('ytd_summary');
+    const acts0 = rowsOf('activities');
+    const y = (acts0 && acts0.length ? ytdFromActivities(acts0) : null) || firstOf('ytd_summary');
     if (y) {
       const c = $('ytd-chips'); c.replaceChildren();
       [['Training days', y.training_days, 'of ' + y.total_days], ['Rest days', y.rest_days, dFmt(pd(y.period_start)) + ' – ' + dFmt(pd(y.period_end))], ['Longest streak', y.longest_no_rest_streak_days + ' d', dFmt(pd(y.longest_no_rest_streak_start)) + ' – ' + dFmt(pd(y.longest_no_rest_streak_end))], ['Training time', fmt0(+y.total_hours) + ' h', fmt0(+y.total_activities) + ' activities']].forEach(([k, v, d]) => { const ch = el('div', 'chip'); ch.appendChild(el('div', 'k', k)); ch.appendChild(el('div', 'v num', String(v))); ch.appendChild(el('div', 'd', d)); c.appendChild(ch); });
@@ -1684,10 +1719,47 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   const PET_KEY = 'rr_pet';
   function petSave() { try { return JSON.parse(localStorage.getItem(PET_KEY) || '{}'); } catch (e) { return {}; } }
   function petAdopt() { try { const p = petSave(); const now = new Date(); const iso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); localStorage.setItem(PET_KEY, JSON.stringify({ gen: (p.gen || 1) + 1, revivedAt: iso })); } catch (e) {} }
+  // Un dia cuenta como entrenado si hubo algo de verdad, no un paseo ni un registro suelto.
+  function isTrainingDay(a) {
+    const f = sportFam(a.sport);
+    return !!f && f !== 'walk' && ((+a.relative_effort || 0) >= 8 || (+a.moving_min || 0) >= 25);
+  }
+  function trainedDaySet(acts) { return new Set((acts || []).filter(isTrainingDay).map((a) => a.date)); }
+
+  // Dias seguidos entrenando sin un dia de descanso. Antes este numero salia de los datos
+  // de ejemplo (y el "maximo del año" estaba escrito a mano), asi que mostraba la racha de
+  // otra persona. Ahora se cuenta de las actividades propias.
+  // La racha solo cuenta si sigue viva: si el ultimo entrenamiento no es de hoy ni de ayer,
+  // ya hubo descanso y la racha es cero.
+  function noRestStreak(acts, todayIso) {
+    const trained = trainedDaySet(acts); if (!trained.size) return 0;
+    const t0 = pd(todayIso).getTime();
+    const dayIso = (i) => new Date(t0 - i * DAY).toISOString().slice(0, 10);
+    let i = 0;
+    while (i < 2 && !trained.has(dayIso(i))) i++;   // hoy todavia puede no estar entrenado
+    if (!trained.has(dayIso(i))) return 0;
+    let n = 0;
+    while (trained.has(dayIso(i + n))) n++;
+    return n;
+  }
+
+  // La racha mas larga del ultimo año, para saber contra que se compara la de hoy.
+  function longestNoRestStreak(acts, todayIso) {
+    const trained = trainedDaySet(acts); if (!trained.size) return 0;
+    const t0 = pd(todayIso).getTime();
+    let best = 0, run = 0;
+    for (let i = 365; i >= 0; i--) {
+      const iso = new Date(t0 - i * DAY).toISOString().slice(0, 10);
+      run = trained.has(iso) ? run + 1 : 0;
+      if (run > best) best = run;
+    }
+    return best;
+  }
+
   // Dias seguidos (terminando hoy) sin entrenar Y sin que tocara descansar segun tu recuperacion.
   // Un dia de descanso que si tocaba, o un dia donde si entrenaste, corta la racha (no te castiga).
   function neglectStreak(acts, wh, todayIso, revivedAt) {
-    const trainedDays = new Set(acts.filter((a) => { const f = sportFam(a.sport); return f && f !== 'walk' && ((+a.relative_effort || 0) >= 8 || (+a.moving_min || 0) >= 25); }).map((a) => a.date));
+    const trainedDays = trainedDaySet(acts);
     const recByDate = new Map(wh.map((w) => [w.date, w.recovery]));
     let streak = 0; const t0 = pd(todayIso).getTime();
     for (let i = 0; i < 60; i++) {
@@ -1707,10 +1779,12 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     const fh = rowsOf('fitness_hist') || []; const peakEver = Math.max(peakY, ...fh.map((d) => +d.fitness || 0), 1);
     const wr = whoopRows(); const wl = wr && wr.length ? wr[wr.length - 1] : null; const rec = wl && (tdt - wl.dt) <= 2 * DAY && !isNaN(wl.recovery) ? wl.recovery : null;
     const acts = rowsOf('activities') || [];
-    const train = acts.filter((a) => { const f = sportFam(a.sport); return f && f !== 'walk' && ((+a.relative_effort || 0) >= 8 || (+a.moving_min || 0) >= 25); });
+    const train = acts.filter(isTrainingDay);
     const lastTrain = train.reduce((m, a) => (a.date > m ? a.date : m), '');
     const idle = lastTrain ? Math.max(0, Math.round((tdt - pd(lastTrain)) / DAY)) : 15;
-    const b = firstOf('brief'); let streak = b ? +b.streak_days_no_rest || 0 : 0; if (idle >= 2) streak = 0;
+    // La racha del gato sale de tus actividades, igual que la de la pantalla. Antes leia
+    // la de los datos de ejemplo y se quejaba de un cansancio que no era tuyo.
+    const b = firstOf('brief'); let streak = noRestStreak(acts, todayIso); if (idle >= 2) streak = 0;
     const plan0 = b ? arr(b.plan)[0] : null; const restPlanned = plan0 && plan0.day === todayIso && /rest|argentina|travel|off/i.test(String(plan0.label || ''));
     // Mismo cuidado que en la decision del dia: con menos de 28 dias de historial real,
     // la relacion de carga no es confiable todavia.
@@ -1880,9 +1954,12 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   function petTouch(P) {
     if (P.st === 'dead') return;
     if (P.st === 'exhausted') {
+      // Cuatro reacciones, como en los demas estados: con dos se repetia enseguida.
       const o = petPick([
         { id: 'zz', run: () => { petPop('💤', 'up', 14); petSay(L('Mmmh... five more minutes.', 'Mmmh... cinco minutos más.')); } },
         { id: 'eye', run: () => { petBody('r-wiggle'); petSay(L('*opens one eye* ...still tired.', '*abre un ojo* ...sigo cansado.')); } },
+        { id: 'yawn', run: () => { petPop('🥱', 'up', -10); petSay(L('*long yawn* tomorrow, promise.', '*bostezo largo* mañana, lo prometo.')); } },
+        { id: 'curl', run: () => { petBody('r-purr'); petSay(L('*curls up tighter* the legs are off today.', '*se hace bolita* hoy las piernas no están.')); } },
       ]);
       return o.run();
     }
@@ -1890,6 +1967,8 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
       const o = petPick([
         { id: 'belly', run: () => { petBody('r-wiggle'); petSay(L('*belly jiggles* ...say nothing.', '*la panza se mueve* ...no digas nada.')); } },
         { id: 'tv', run: () => { petPop('📺', 'up', -12); petSay(L('Shh, good part coming up.', 'Shh, ya viene lo bueno.')); } },
+        { id: 'couch', run: () => { petBody('r-purr'); petSay(L('The couch and I have an agreement.', 'El sofá y yo tenemos un acuerdo.')); } },
+        { id: 'bike', run: () => { petPop('🚲', 'up', 12); petSay(L('The bike? Still there. Tomorrow.', '¿La bici? Ahí sigue. Mañana.')); } },
       ]);
       return o.run();
     }
