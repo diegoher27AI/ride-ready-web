@@ -74,4 +74,20 @@ console.log('semana                :', q('week'));
 console.log('boton calendario      :', doc.getElementById('cal-box').hidden ? 'escondido' : 'visible: ' + q('cal-btn'));
 console.log('zonas                 :', q('zone-cap'));
 console.log('errores               :', errors.length ? errors : 'ninguno');
+
+// --- interaccion: pedirle a la app que cambie el entrenamiento ---
+const btns = () => [...doc.querySelectorAll('#ask-me button')].map((b) => b.textContent.trim());
+console.log('\nbotones disponibles   :', btns().join(' | '));
+const tap = (label) => { const b = [...doc.querySelectorAll('#ask-me button')].find((x) => x.textContent.trim() === label); if (!b) return false; b.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); return true; };
+if (tap('30 min')) {
+  console.log('tras pedir 30 min     :', q('wk-meta').slice(0, 40), '|', q('wk-steps').slice(0, 90));
+}
+if (tap('Mal, más suave')) {
+  console.log('tras "me siento mal"  :', q('wk-title'), '|', q('wk-purpose').slice(0, 95));
+}
+if (tap('Hoy no puedo')) {
+  console.log('tras "hoy no puedo"   :', q('wk-title'), '|', q('wk-purpose').slice(0, 70));
+  console.log('boton calendario      :', doc.getElementById('cal-box').hidden ? 'escondido (correcto)' : 'visible');
+}
+console.log('errores al final      :', errors.length ? errors : 'ninguno');
 process.exit(errors.length ? 1 : 0);

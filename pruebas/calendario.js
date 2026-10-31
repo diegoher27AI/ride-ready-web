@@ -1,51 +1,56 @@
-// Prueba callWorkoutText(): el texto del entrenamiento que se manda al calendario de
-// intervals.icu, en la sintaxis que ellos entienden (Warmup/Main Set/Cooldown + pasos "- Nm X-YW").
+// Prueba sessionToText() y fitToMinutes(): el entrenamiento que se manda al calendario de
+// intervals.icu sale del mismo que ves en pantalla, ya ajustado al tiempo que dijiste tener.
 const fs = require('fs');
 const path = require('path');
 const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'panel.html'), 'utf8');
 
-const start = src.indexOf('  function callWorkoutText(');
-const end = src.indexOf('  function renderCall() {');
-const code = src.slice(start, end);
-
-let ZONES = null;
-const firstOf = (id) => (id === 'zones' ? ZONES : null);
+function grab(from, to) {
+  const a = src.indexOf(from), b = src.indexOf(to);
+  if (a < 0 || b < 0) throw new Error('no encontre ' + from);
+  return src.slice(a, b);
+}
 const arr = (v) => (Array.isArray(v) ? v : []);
-const obj = (v) => v;
-const L = (en) => en;   // solo se prueba el texto en ingles, que es el que lee intervals.icu
-
-const callWorkoutText = eval('(function(){' + code + '\nreturn callWorkoutText;})()');
+const code = grab('  function sessionToText(', '  function renderCall() {') + grab('  function fitToMinutes(', '  function todaySession()');
+const api = eval('(function(){' + code + '\nreturn { sessionToText, fitToMinutes };})()');
+const { sessionToText, fitToMinutes } = api;
 
 let pass = 0, fail = 0;
-function check(name, got, want) {
-  const ok = JSON.stringify(got) === JSON.stringify(want);
-  if (ok) { pass++; console.log('  ok  ', name); }
-  else { fail++; console.log('  FALLA', name, '\n    esperaba', JSON.stringify(want), '\n    obtuve  ', JSON.stringify(got)); }
-}
+const ok = (n, c) => { if (c) { pass++; console.log('  ok  ', n); } else { fail++; console.log('  FALLA', n); } };
+const eq = (n, got, want) => { const o = JSON.stringify(got) === JSON.stringify(want); if (o) { pass++; console.log('  ok  ', n); } else { fail++; console.log('  FALLA', n, '\n    esperaba', JSON.stringify(want), '\n    obtuve  ', JSON.stringify(got)); } };
 
-console.log('Sin decision (descanso o sesion planificada generica): no manda nada');
-check('nivel 0 (descanso) no manda', callWorkoutText(0, false), null);
-check('nivel 2 sin pico (sesion planificada, sin numeros propios) no manda', callWorkoutText(2, false), null);
+const steps = () => ([
+  { name: 'Calentamiento', min: 8, int: 'warmup', p: [0, 137], hr: [0, 127] },
+  { name: 'Rodada suave', min: 32, int: 'active', p: [138, 187], hr: [0, 127] },
+  { name: 'Enfriamiento', min: 5, int: 'cooldown', p: [0, 137], hr: [0, 127] },
+]);
 
-console.log('\nCon zonas reales:');
-ZONES = { power_zones: [{ label: 'Z1 Recovery', min: 0, max: 148 }, { label: 'Z2 Endurance', min: 149, max: 198 }] };
-const r1 = callWorkoutText(1, false);
-check('nivel 1 (suave) trae nombre', r1.name, 'Recovery spin');
-check('nivel 1 usa la zona 1 en el calentamiento', /\d+-148W/.test(r1.text), true);
-check('nivel 1 usa la zona 2 en el bloque principal', r1.text.includes('149-198W'), true);
-check('nivel 1 dura 45 min en total (8 + 32 + 5)', /8m/.test(r1.text) && /32m/.test(r1.text) && /5m/.test(r1.text), true);
-check('trae las tres secciones', ['Warmup', 'Main Set', 'Cooldown'].every((s) => r1.text.includes(s)), true);
+console.log('Texto para intervals.icu:');
+const text = sessionToText({ title: 'Rodada suave', steps: steps() });
+ok('trae las tres secciones', ['Warmup', 'Main Set', 'Cooldown'].every((s) => text.includes(s)));
+ok('cada paso lleva minutos y vatios', /- 8m 0-137W/.test(text) && /- 32m 138-187W/.test(text));
+eq('sin pasos no manda nada', sessionToText({ steps: [] }), null);
+eq('sin entrenamiento no manda nada', sessionToText(null), null);
 
-const r2 = callWorkoutText(2, true);
-check('nivel 2 con pico trae nombre', r2.name, 'Zone 2 ride');
-check('nivel 2 con pico usa la zona 2 en el bloque principal', r2.text.includes('149-198W'), true);
-check('nivel 2 con pico dura 75 min (10 + 55 + 10)', /10m/.test(r2.text) && /55m/.test(r2.text), true);
+console.log('\nAjustar al tiempo disponible:');
+const total = (s) => s.reduce((a, x) => a + x.min, 0);
+[30, 45, 60, 90].forEach((m) => {
+  const out = fitToMinutes(steps(), m);
+  eq(`${m} min da exactamente ${m} min`, total(out), m);
+  ok(`${m} min conserva los tres pasos`, out.length === 3);
+  ok(`${m} min deja calentamiento de 4 min o mas`, out[0].min >= 4);
+});
+eq('sin tiempo pedido no cambia nada', fitToMinutes(steps(), null), steps());
+eq('el mismo tiempo no cambia nada', total(fitToMinutes(steps(), 45)), 45);
 
-console.log('\nSin zonas guardadas, usa un numero razonable por defecto (no se rompe):');
-ZONES = null;
-const r3 = callWorkoutText(1, false);
-check('nivel 1 sin zonas sigue trayendo texto', typeof r3.text === 'string' && r3.text.length > 0, true);
-check('nivel 1 sin zonas usa el respaldo 110-150W', r3.text.includes('110-150W'), true);
+console.log('\nCon muy poco tiempo sigue siendo un entrenamiento valido:');
+const tiny = fitToMinutes(steps(), 20);
+eq('20 min da 20 min', total(tiny), 20);
+ok('20 min deja un bloque principal de 5 min o mas', tiny.find((s) => s.int === 'active').min >= 5);
+ok('20 min no deja pasos en cero ni negativos', tiny.every((s) => s.min > 0));
+
+console.log('\nNo toca los vatios al cambiar el tiempo:');
+const scaled = fitToMinutes(steps(), 90);
+eq('la intensidad del bloque principal se mantiene', scaled.find((s) => s.int === 'active').p, [138, 187]);
 
 console.log(`\n${pass} pasaron, ${fail} fallaron`);
 process.exit(fail ? 1 : 0);

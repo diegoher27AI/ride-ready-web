@@ -261,6 +261,14 @@
 .pet-art.r-nope svg { animation: rNope .5s ease-in-out; }
 .pet-art.r-purr svg { animation: rPurr 1s ease-in-out 2; }
 @media (prefers-reduced-motion: reduce) { .pet-pop, .pet-art.r-hop svg, .pet-art.r-wiggle svg, .pet-art.r-nope svg, .pet-art.r-purr svg { animation: none; } }
+/* "pidele a la app que lo cambie": tiempo disponible y como te sientes */
+.ask-me { margin: 12px 0 2px; }
+.ask-me .amq { font-size: 12px; color: var(--ink2); font-weight: 600; margin-bottom: 7px; }
+.ask-me .amrow { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 11px; }
+.ask-me button { appearance: none; cursor: pointer; font: 600 13px -apple-system, system-ui, sans-serif; padding: 8px 13px; border-radius: 99px; border: 1px solid var(--hair); background: var(--glass2); color: var(--ink); min-height: 36px; }
+.ask-me button[aria-pressed="true"] { background: var(--blue); border-color: transparent; color: #fff; }
+.ask-me button:active { transform: scale(.96); }
+.ask-me button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .pet-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .pet-act { appearance: none; cursor: pointer; font: 600 13px -apple-system, system-ui, sans-serif; padding: 8px 14px; border-radius: 99px; border: 1px solid var(--hair); background: var(--glass2); color: var(--ink); }
 .pet-act:active { transform: scale(.96); }
@@ -373,6 +381,7 @@
     <div class="wk-chart" id="wk-chart"></div>
     <p class="cap" id="wk-purpose" style="margin:0;">—</p>
     <div class="cond" id="wk-cond" hidden></div>
+    <div class="ask-me" id="ask-me"></div>
     <ul class="steps" id="wk-steps"></ul>
     <div class="gc-howto" id="gc-howto" data-dev="garmin">
      <b>Build it in Garmin Connect</b>
@@ -740,24 +749,16 @@
     return { title: L('Planned session', 'Sesión planificada'), detail: L('Follow today’s workout below.', 'Sigue el entrenamiento de hoy, abajo.') };
   }
 
-  // Texto del entrenamiento en la sintaxis de intervals.icu (lo que entiende para armar los pasos).
-  // Solo arma el texto cuando hay un numero real que mandar: en "sesion planificada" (sin numeros
-  // propios todavia, eso es el calculo de cada manana que falta construir) no hay nada que enviar.
-  function callWorkoutText(level, spike) {
-    const z = firstOf('zones');
-    const pz = z ? arr(obj(z.power_zones)) : []; const hz = z ? arr(obj(z.heart_rate_zones)) : [];
-    const find = (list, re) => list.find((x) => re.test(String(x.label || ''))) || null;
-    const z1p = find(pz, /Z1|Recovery/i), z2p = find(pz, /Z2|Endurance/i);
-    const rng = (x, lo, hi) => (x && x.min != null && x.max != null ? `${x.min}-${x.max}W` : `${lo}-${hi}W`);
-    if (level === 1) {
-      const warm = rng(z1p, 90, 120), main = rng(z2p, 110, 150), cool = rng(z1p, 80, 100);
-      return { name: L('Recovery spin', 'Rodada suave'), text: `Warmup\n- 8m ${warm}\n\nMain Set\n- 32m ${main}\n\nCooldown\n- 5m ${cool}` };
-    }
-    if (level === 2 && spike) {
-      const warm = rng(z1p, 100, 130), main = rng(z2p, 140, 190), cool = rng(z1p, 90, 110);
-      return { name: L('Zone 2 ride', 'Rodada en zona 2'), text: `Warmup\n- 10m ${warm}\n\nMain Set\n- 55m ${main}\n\nCooldown\n- 10m ${cool}` };
-    }
-    return null;
+  // Pasa el entrenamiento que estas viendo a la sintaxis de intervals.icu, que de ahi lo
+  // convierte en pasos y lo empuja al Garmin y al Karoo. Una seccion por paso, con sus vatios.
+  function sessionToText(s) {
+    if (!s || !arr(s.steps).length) return null;
+    const head = { warmup: 'Warmup', cooldown: 'Cooldown' };
+    return arr(s.steps).map((st) => {
+      const title = head[st.int] || 'Main Set';
+      const lo = Math.max(0, Math.round(st.p[0])), hi = Math.round(st.p[1]);
+      return `${title}\n- ${st.min}m ${lo}-${hi}W`;
+    }).join('\n\n');
   }
 
   function renderCall() {
@@ -793,7 +794,9 @@
   // generica, esa parte todavia no esta construida) y cuando hay sesion iniciada.
   function renderCalBtn(c) {
     const box = $('cal-box'); if (!box) return;
-    const wk = c && !c.stale && window.rrAccount ? callWorkoutText(c.level, c.spike) : null;
+    // Se manda exactamente el entrenamiento que estas viendo, ya con tus ajustes de hoy.
+    const s = window.rrAccount ? (todaySession() || [])[0] : null;
+    const wk = s ? { name: s.title, text: sessionToText(s) } : null;
     if (!wk) { box.hidden = true; return; }
     box.hidden = false;
     const btn = $('cal-btn'), st = $('cal-st');
@@ -984,8 +987,55 @@
   // 'sessions' (pasos con potencia y pulso), para que la tarjeta no muestre un ejemplo.
   // En "sesion planificada" (verde sin pico) todavia no hay un entrenamiento propio que armar:
   // eso sale del calculo de cada manana, que es la parte que falta construir.
+  // ---------- lo que el ciclista le pide a la app para hoy ----------
+  // Se guarda en el telefono y solo vale para hoy: manana vuelve a mandar la decision del dia.
+  const TWEAK_KEY = 'rr_today';
+  function todayIsoLocal() { const n = new Date(); return new Date(n - n.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); }
+  function tweak() {
+    try { const t = JSON.parse(localStorage.getItem(TWEAK_KEY) || '{}'); return t && t.date === todayIsoLocal() ? t : {}; } catch (e) { return {}; }
+  }
+  function setTweak(patch) {
+    const t = { ...tweak(), ...patch, date: todayIsoLocal() };
+    try { localStorage.setItem(TWEAK_KEY, JSON.stringify(t)); } catch (e) {}
+    render();
+  }
+  // Reescala los pasos al tiempo disponible: el calentamiento y el enfriamiento se encogen
+  // pero no desaparecen, y lo que sobra o falta se le quita o se le suma al bloque principal,
+  // que es lo que de verdad da el entrenamiento.
+  function fitToMinutes(steps, target) {
+    const total = steps.reduce((a, s) => a + s.min, 0);
+    if (!target || target === total) return steps;
+    const out = steps.map((s) => ({ ...s }));
+    const mains = out.filter((s) => s.int === 'active');
+    const ends = out.filter((s) => s.int !== 'active');
+    const endsMin = ends.reduce((a, s) => a + s.min, 0);
+    // Con muy poco tiempo, primero se recorta el calentamiento y el enfriamiento (hasta 4 min cada uno).
+    let budget = target;
+    if (target < endsMin + 10) {
+      const floor = ends.length * 4;
+      const give = Math.max(floor, Math.min(endsMin, target - 8));
+      const k = endsMin ? give / endsMin : 0;
+      ends.forEach((s) => { s.min = Math.max(4, Math.round(s.min * k)); });
+    }
+    budget = target - out.filter((s) => s.int !== 'active').reduce((a, s) => a + s.min, 0);
+    const mainTotal = mains.reduce((a, s) => a + s.min, 0) || 1;
+    mains.forEach((s, i) => {
+      const share = s.min / mainTotal;
+      s.min = Math.max(5, Math.round(budget * share));
+    });
+    // Cuadra el redondeo contra el bloque principal mas largo.
+    const diff = target - out.reduce((a, s) => a + s.min, 0);
+    if (diff && mains.length) {
+      const big = mains.reduce((a, s) => (s.min > a.min ? s : a), mains[0]);
+      big.min = Math.max(5, big.min + diff);
+    }
+    return out;
+  }
+
   function todaySession() {
     const c = dayCall(); if (!c || c.stale) return null;
+    const tw = tweak();
+    if (tw.skip) return null;                             // "hoy no puedo entrenar"
     const z = firstOf('zones');
     const pz = z ? arr(obj(z.power_zones)) : []; const hz = z ? arr(obj(z.heart_rate_zones)) : [];
     const find = (list, re) => list.find((x) => re.test(String(x.label || ''))) || null;
@@ -994,10 +1044,13 @@
     const P = (x, lo, hi) => (x && x.min != null && x.max != null ? [+x.min, +x.max] : [lo, hi]);
     const H = (x) => (x && x.min != null && x.max != null ? [+x.min, +x.max] : null);
     const now = new Date(); const date = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
-    if (c.level === 0) return null;                       // descanso: no hay entrenamiento que mostrar
-    if (c.level === 2 && !c.spike) return null;           // sesion planificada: falta el calculo de la manana
-    const easy = c.level === 1;
-    const steps = easy ? [
+    // "Me siento mal" baja un nivel, igual que lo harian la VFC o el pulso altos.
+    const lvl = tw.rough ? Math.max(0, c.level - 1) : c.level;
+    const spike = lvl === 2 && c.spike;
+    if (lvl === 0) return null;                           // descanso: no hay entrenamiento que mostrar
+    if (lvl === 2 && !spike) return null;                 // sesion planificada: falta el calculo de la manana
+    const easy = lvl === 1;
+    const steps0 = easy ? [
       { name: L('Warmup', 'Calentamiento'), min: 8, int: 'warmup', p: P(z1p, 90, 120), hr: H(z1h) },
       { name: L('Easy spin', 'Rodada suave'), min: 32, int: 'active', p: P(z2p, 110, 150), hr: H(z1h) },
       { name: L('Cooldown', 'Enfriamiento'), min: 5, int: 'cooldown', p: P(z1p, 80, 100), hr: H(z1h) },
@@ -1006,21 +1059,58 @@
       { name: L('Steady zone 2', 'Zona 2 constante'), min: 55, int: 'active', p: P(z2p, 140, 190), hr: H(z2h) },
       { name: L('Cooldown', 'Enfriamiento'), min: 10, int: 'cooldown', p: P(z1p, 90, 110), hr: H(z1h) },
     ];
+    const steps = fitToMinutes(steps0, tw.mins);
+    const base = easy
+      ? L(`Recovery ${fmt0(c.rec)}% today: keep it genuinely easy so tomorrow is better.`, `Recuperación ${fmt0(c.rec)}% hoy: mantenlo de verdad suave para que mañana estés mejor.`)
+      : L(`Load ratio ${fmt2(c.acwr)} is over 1.5: aerobic only, no hard efforts.`, `La relación de carga ${fmt2(c.acwr)} pasa de 1.5: solo aeróbico, sin esfuerzos duros.`);
+    const extra = [];
+    if (tw.rough) extra.push(L('You said you feel rough, so this is one level easier than your numbers alone would ask for.', 'Dijiste que te sientes mal, así que esto es un nivel más suave de lo que pedirían tus números solos.'));
+    if (tw.mins) extra.push(L(`Fitted to the ${tw.mins} minutes you have.`, `Ajustado a los ${tw.mins} minutos que tienes.`));
     return [{
       date,
       when: 'AM',
       title: easy ? L('Recovery spin', 'Rodada suave') : L('Zone 2 ride', 'Rodada en zona 2'),
-      purpose: easy
-        ? L(`Recovery ${fmt0(c.rec)}% today: keep it genuinely easy so tomorrow is better.`, `Recuperación ${fmt0(c.rec)}% hoy: mantenlo de verdad suave para que mañana estés mejor.`)
-        : L(`Load ratio ${fmt2(c.acwr)} is over 1.5: aerobic only, no hard efforts.`, `La relación de carga ${fmt2(c.acwr)} pasa de 1.5: solo aeróbico, sin esfuerzos duros.`),
+      purpose: [base].concat(extra).join(' '),
       condition: L('Bike, power + HR.', 'Bici, potencia y pulso.'),
       steps,
       duration_min: steps.reduce((a, s) => a + s.min, 0),
     }];
   }
 
+  // Los controles para pedirle a la app que cambie el entrenamiento de hoy.
+  function renderAskMe() {
+    const host = $('ask-me'); if (!host) return;
+    host.replaceChildren();
+    const c = dayCall();
+    if (!c || c.stale) return;                       // sin decision fresca no hay nada que ajustar
+    const tw = tweak();
+    const row = (question, opts) => {
+      host.appendChild(el('div', 'amq', question));
+      const r = el('div', 'amrow');
+      opts.forEach((o) => {
+        const b = el('button', null, o.label); b.type = 'button';
+        b.setAttribute('aria-pressed', String(!!o.on));
+        b.addEventListener('click', o.go);
+        r.appendChild(b);
+      });
+      host.appendChild(r);
+    };
+    if (!tw.skip && !(c.level === 2 && !c.spike && !tw.rough)) {
+      const mins = [30, 45, 60, 90];
+      row(L('How much time do you have?', '¿Cuánto tiempo tienes?'), [
+        { label: L('As planned', 'Lo planificado'), on: !tw.mins, go: () => setTweak({ mins: null }) },
+      ].concat(mins.map((m) => ({ label: m + ' min', on: tw.mins === m, go: () => setTweak({ mins: m }) }))));
+    }
+    row(L('How do you feel?', '¿Cómo te sientes?'), [
+      { label: L('Normal', 'Normal'), on: !tw.rough && !tw.skip, go: () => setTweak({ rough: false, skip: false }) },
+      { label: L('Rough, go easier', 'Mal, más suave'), on: !!tw.rough && !tw.skip, go: () => setTweak({ rough: true, skip: false }) },
+      { label: L("Can't train today", 'Hoy no puedo'), on: !!tw.skip, go: () => setTweak({ skip: true }) },
+    ]);
+  }
+
   function renderWorkout() {
     safe(renderDevice);
+    safe(renderAskMe);
     const ftp = (firstOf('zones') || {}).ftp_w ? +firstOf('zones').ftp_w : 264;
     const card = $('card-workout');
     const mine = todaySession();
@@ -1030,16 +1120,19 @@
     // en vez de mostrar el de ejemplo, que es lo que confundia.
     if (c && !c.stale && !mine) {
       if (card) card.hidden = false;
+      const tw = tweak();
       const days0 = $('sess-days'); if (days0) days0.replaceChildren();
       txt('wk-eyebrow', L('Today', 'Hoy'));
-      const t = callTargets(c.level, c.spike);
-      txt('wk-title', t.title);
+      const lvl = tw.rough ? Math.max(0, c.level - 1) : c.level;
+      txt('wk-title', tw.skip ? L('Day off', 'Día libre') : callTargets(lvl, lvl === 2 && c.spike).title);
       const meta0 = $('wk-meta'); if (meta0) meta0.replaceChildren();
       const ul0 = $('wk-steps'); if (ul0) ul0.replaceChildren();
       const box0 = $('c-wk'); if (box0) box0.replaceChildren();
-      txt('wk-purpose', c.level === 0
-        ? L('Nothing to ride today. Walk, stretch, sleep early.', 'Hoy no se rueda. Caminar, estirar, dormir temprano.')
-        : L('Your own session with watts and heart rate comes from the morning calculation, which is still being built. For now, follow your usual planned session.', 'Tu sesión propia con vatios y pulso sale del cálculo de cada mañana, que todavía se está construyendo. Por ahora, sigue tu sesión planificada de siempre.'));
+      txt('wk-purpose', tw.skip
+        ? L('Noted: nothing today. Tomorrow starts fresh from your numbers.', 'Anotado: hoy nada. Mañana se arranca de nuevo con tus números.')
+        : lvl === 0
+          ? L('Nothing to ride today. Walk, stretch, sleep early.', 'Hoy no se rueda. Caminar, estirar, dormir temprano.')
+          : L('Your own session with watts and heart rate comes from the morning calculation, which is still being built. For now, follow your usual planned session.', 'Tu sesión propia con vatios y pulso sale del cálculo de cada mañana, que todavía se está construyendo. Por ahora, sigue tu sesión planificada de siempre.'));
       return;
     }
     const rows = mine || rowsOf('sessions');
