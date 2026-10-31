@@ -102,6 +102,24 @@
     return rows;
   }
 
+  // Supabase devuelve como mucho 1000 filas por pedido, y manda las PRIMERAS. Con mas de
+  // 1000 dias de bienestar, los ultimos meses no llegaban: a Juan Diego se le quedo todo
+  // congelado el 22 de julio, justo la fila 1000. Las actividades se salvaron de casualidad,
+  // por ser menos de 1000. Por eso ahora se pide por paginas hasta que una venga incompleta.
+  const PAGE = 1000;
+  async function fetchAll(table, uid, orderBy) {
+    const out = [];
+    for (let i = 0; ; i += PAGE) {
+      const { data, error } = await sb.from(table).select('*').eq('user_id', uid)
+        .order(orderBy, { ascending: true }).range(i, i + PAGE - 1);
+      if (error) return { data: out.length ? out : null, error };
+      if (!data || !data.length) break;
+      out.push(...data);
+      if (data.length < PAGE) break;
+    }
+    return { data: out, error: null };
+  }
+
   // Trae lo que ya sincronizamos de intervals.icu (Garmin, Karoo, Whoop) para quien inicio sesion.
   async function loadFromAccount() {
     if (!sb) return;
@@ -110,8 +128,8 @@
     const uid = data.session.user.id;
     const since = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
     const [a, w, p, pl, go] = await Promise.all([
-      sb.from('activities').select('*').eq('user_id', uid).order('date', { ascending: true }),
-      sb.from('wellness').select('*').eq('user_id', uid).order('date', { ascending: true }),
+      fetchAll('activities', uid, 'date'),
+      fetchAll('wellness', uid, 'date'),
       sb.from('athlete_profile').select('*').eq('user_id', uid).maybeSingle(),
       sb.from('planned_sessions').select('*').eq('user_id', uid).gte('day', since).order('day', { ascending: true }),
       sb.from('goals').select('*').eq('user_id', uid).order('goal_date', { ascending: true }),
