@@ -145,7 +145,11 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     }));
 
-    const wellRows = (wellness as any[]).map((w) => ({
+    // intervals.icu crea el dia de bienestar en cuanto amanece, aunque Whoop no haya
+    // mandado nada. Esas filas vacias no se guardan: no aportan y hacen parecer que hay
+    // un dato del dia cuando no lo hay. Si luego llega el dato, el upsert la crea.
+    const tieneAlgo = (w: any) => w.readiness != null || w.hrv != null || w.restingHR != null || w.sleepSecs != null;
+    const wellRows = (wellness as any[]).filter(tieneAlgo).map((w) => ({
       user_id: userId,
       date: w.id,
       readiness: w.readiness ?? null,

@@ -712,7 +712,18 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   }
 
   // ---------- WHOOP ----------
-  function whoopRows() { const r = rowsOf('whoop'); return r ? r.map((d) => ({ ...d, dt: pd(d.date), recovery: +d.recovery, hrv: +d.hrv, rhr: +d.rhr, hrv_7d: +d.hrv_7d, hrv_30d: +d.hrv_30d, rhr_7d: +d.rhr_7d, rhr_30d: +d.rhr_30d, asleep_h: d.asleep_h == null ? null : +d.asleep_h, need_h: d.need_h == null ? null : +d.need_h })).sort((a, b) => a.dt - b.dt) : null; }
+  // intervals.icu crea la fila del dia en cuanto amanece (y a veces la de manana, segun la
+  // zona horaria) aunque Whoop todavia no haya mandado nada. Esas filas van vacias y no son
+  // "el ultimo dia" de nadie: se descartan aqui para que ninguna pantalla las tome a ciegas.
+  function whoopRows() {
+    const r = rowsOf('whoop'); if (!r) return null;
+    // Ojo: +null y +'' dan 0, no NaN. Un dia sin recuperacion se leia como "recuperacion 0%"
+    // y la app mandaba descanso total con un dia perfecto detras. Aqui vacio es vacio.
+    const n = (v) => (v == null || v === '' ? NaN : +v);
+    return r.map((d) => ({ ...d, dt: pd(d.date), recovery: n(d.recovery), hrv: n(d.hrv), rhr: n(d.rhr), hrv_7d: n(d.hrv_7d), hrv_30d: n(d.hrv_30d), rhr_7d: n(d.rhr_7d), rhr_30d: n(d.rhr_30d), asleep_h: d.asleep_h == null || d.asleep_h === '' ? null : +d.asleep_h, need_h: d.need_h == null || d.need_h === '' ? null : +d.need_h }))
+      .filter((d) => isFinite(d.recovery) || isFinite(d.hrv) || isFinite(d.rhr) || d.asleep_h != null)
+      .sort((a, b) => a.dt - b.dt);
+  }
   const recColor = (v) => (v >= 67 ? '#30D158' : v >= 34 ? '#FFD60A' : '#FF453A');
 
   // ---------- la decision del dia (las reglas de CLAUDE.md, con datos reales) ----------
@@ -722,8 +733,12 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   // o el pulso en reposo esta 4 lpm o mas sobre el suyo.
   function dayCall() {
     const w = whoopRows(); if (!w || !w.length) return null;
-    const last = w[w.length - 1];
-    if (!isFinite(last.recovery)) return null;
+    // La ultima fila puede venir vacia: intervals.icu crea el dia de bienestar en cuanto
+    // amanece (y hasta el de manana segun la zona horaria) aunque Whoop todavia no haya
+    // mandado la recuperacion. Antes se miraba esa fila a ciegas y la app se rendia con
+    // un dia perfecto en la fila de atras. Se toma la ultima que SI trae recuperacion.
+    const last = w.filter((x) => isFinite(x.recovery)).slice(-1)[0];
+    if (!last) return null;
     const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
     const freshEnough = (pd(todayIso) - last.dt) <= DAY;   // de hoy o de ayer; mas viejo no decide el dia
     if (!freshEnough) return null;
