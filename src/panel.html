@@ -950,12 +950,25 @@
         const done = doneNow;
         const re = d3.sum(done, (a) => +a.relative_effort);
         if (done.length) { cls = re >= 70 ? 'hard' : 'done'; ic = sportIcon(done[0].sport, done[0].name); label = 'RE ' + fmt0(re); } else { cls = 'rest'; ic = 'rest'; label = 'Rest'; }
+      } else if (i === 0) {
+        // Hoy, sin actividad todavia: manda la decision de hoy, no un plan de ejemplo.
+        const c = dayCall();
+        const t = c && !c.stale ? callTargets(c.level, c.spike) : null;
+        if (c && !c.stale) {
+          cls = c.level === 0 ? 'rest' : 'done'; ic = c.level === 0 ? 'rest' : 'bike';
+          label = c.level === 0 ? L('Rest', 'Descanso') : c.level === 1 ? L('Easy', 'Suave') : c.spike ? 'Z2' : L('Train', 'Entrenar');
+        } else { cls = 'plan'; ic = 'bike'; label = '—'; }
       } else {
-        const p = plan.find((x) => x.day === ds) || plan.filter((x) => x.day <= ds).slice(-1)[0];
-        const L = p ? p.label : '';
-        if (/rest/i.test(L)) { cls = 'rest'; ic = 'rest'; } else if (/argentina|travel/i.test(L)) { cls = 'travel'; ic = 'plane'; } else if (/gym/i.test(L)) { ic = 'gym'; } else ic = 'bike';
-        if (i === 0 && cls === 'plan') cls = 'done';
-        label = /easy/i.test(L) ? 'Easy' : /rest/i.test(L) ? 'Rest' : /recovery|spin/i.test(L) ? 'Spin' : /gym/i.test(L) ? 'Gym' : /endurance/i.test(L) ? 'Z2' : /sweet/i.test(L) ? 'Sweet spot' : /argentina|travel/i.test(L) ? 'Travel' : /long/i.test(L) ? 'Long' : L.split(' ')[0];
+        // Dias que vienen: solo se muestran si hay un plan de verdad. El plan propio sale del
+        // calculo de cada manana, que todavia no existe, asi que por ahora quedan vacios en vez
+        // de mostrar etiquetas de ejemplo que no significan nada.
+        const p = plan.find((x) => x.day === ds);
+        const lab = p ? String(p.label || '') : '';
+        if (!lab || /example/i.test(lab)) { cls = 'plan'; ic = 'bike'; label = ''; }
+        else {
+          if (/rest/i.test(lab)) { cls = 'rest'; ic = 'rest'; } else if (/gym/i.test(lab)) { ic = 'gym'; } else ic = 'bike';
+          label = /easy/i.test(lab) ? L('Easy', 'Suave') : /rest/i.test(lab) ? L('Rest', 'Descanso') : /recovery|spin/i.test(lab) ? L('Spin', 'Suave') : /gym/i.test(lab) ? L('Gym', 'Pesas') : /endurance/i.test(lab) ? 'Z2' : /sweet/i.test(lab) ? 'Sweet spot' : /long/i.test(lab) ? L('Long', 'Larga') : lab.split(' ')[0];
+        }
       }
       const dot = el('div', 'dot ' + cls); dot.appendChild(icon(ic)); cell.appendChild(dot);
       cell.appendChild(el('div', 'dl', label)); host.appendChild(cell);
@@ -967,15 +980,77 @@
     const g = $('gc-howto'), h = $('hh-howto'); if (!g || !h) return;
     g.hidden = d === 'hammerhead'; h.hidden = d === 'garmin';
   }
+  // Arma el entrenamiento de hoy con la decision real y tus zonas, con la misma forma que
+  // 'sessions' (pasos con potencia y pulso), para que la tarjeta no muestre un ejemplo.
+  // En "sesion planificada" (verde sin pico) todavia no hay un entrenamiento propio que armar:
+  // eso sale del calculo de cada manana, que es la parte que falta construir.
+  function todaySession() {
+    const c = dayCall(); if (!c || c.stale) return null;
+    const z = firstOf('zones');
+    const pz = z ? arr(obj(z.power_zones)) : []; const hz = z ? arr(obj(z.heart_rate_zones)) : [];
+    const find = (list, re) => list.find((x) => re.test(String(x.label || ''))) || null;
+    const z1p = find(pz, /Z1|Recovery/i), z2p = find(pz, /Z2|Endurance/i);
+    const z1h = find(hz, /Z1|Recovery/i), z2h = find(hz, /Z2|Endurance/i);
+    const P = (x, lo, hi) => (x && x.min != null && x.max != null ? [+x.min, +x.max] : [lo, hi]);
+    const H = (x) => (x && x.min != null && x.max != null ? [+x.min, +x.max] : null);
+    const now = new Date(); const date = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    if (c.level === 0) return null;                       // descanso: no hay entrenamiento que mostrar
+    if (c.level === 2 && !c.spike) return null;           // sesion planificada: falta el calculo de la manana
+    const easy = c.level === 1;
+    const steps = easy ? [
+      { name: L('Warmup', 'Calentamiento'), min: 8, int: 'warmup', p: P(z1p, 90, 120), hr: H(z1h) },
+      { name: L('Easy spin', 'Rodada suave'), min: 32, int: 'active', p: P(z2p, 110, 150), hr: H(z1h) },
+      { name: L('Cooldown', 'Enfriamiento'), min: 5, int: 'cooldown', p: P(z1p, 80, 100), hr: H(z1h) },
+    ] : [
+      { name: L('Warmup', 'Calentamiento'), min: 10, int: 'warmup', p: P(z1p, 100, 130), hr: H(z1h) },
+      { name: L('Steady zone 2', 'Zona 2 constante'), min: 55, int: 'active', p: P(z2p, 140, 190), hr: H(z2h) },
+      { name: L('Cooldown', 'Enfriamiento'), min: 10, int: 'cooldown', p: P(z1p, 90, 110), hr: H(z1h) },
+    ];
+    return [{
+      date,
+      when: 'AM',
+      title: easy ? L('Recovery spin', 'Rodada suave') : L('Zone 2 ride', 'Rodada en zona 2'),
+      purpose: easy
+        ? L(`Recovery ${fmt0(c.rec)}% today: keep it genuinely easy so tomorrow is better.`, `Recuperación ${fmt0(c.rec)}% hoy: mantenlo de verdad suave para que mañana estés mejor.`)
+        : L(`Load ratio ${fmt2(c.acwr)} is over 1.5: aerobic only, no hard efforts.`, `La relación de carga ${fmt2(c.acwr)} pasa de 1.5: solo aeróbico, sin esfuerzos duros.`),
+      condition: L('Bike, power + HR.', 'Bici, potencia y pulso.'),
+      steps,
+      duration_min: steps.reduce((a, s) => a + s.min, 0),
+    }];
+  }
+
   function renderWorkout() {
     safe(renderDevice);
     const ftp = (firstOf('zones') || {}).ftp_w ? +firstOf('zones').ftp_w : 264;
-    const rows = rowsOf('sessions'); if (!rows || !rows.length) return;
+    const card = $('card-workout');
+    const mine = todaySession();
+    const c = dayCall();
+    // Con decision propia y fresca, solo se muestra el entrenamiento propio. Si hoy no hay uno
+    // (descanso, o "sesion planificada" que todavia depende del calculo de la manana), se dice
+    // en vez de mostrar el de ejemplo, que es lo que confundia.
+    if (c && !c.stale && !mine) {
+      if (card) card.hidden = false;
+      const days0 = $('sess-days'); if (days0) days0.replaceChildren();
+      txt('wk-eyebrow', L('Today', 'Hoy'));
+      const t = callTargets(c.level, c.spike);
+      txt('wk-title', t.title);
+      const meta0 = $('wk-meta'); if (meta0) meta0.replaceChildren();
+      const ul0 = $('wk-steps'); if (ul0) ul0.replaceChildren();
+      const box0 = $('c-wk'); if (box0) box0.replaceChildren();
+      txt('wk-purpose', c.level === 0
+        ? L('Nothing to ride today. Walk, stretch, sleep early.', 'Hoy no se rueda. Caminar, estirar, dormir temprano.')
+        : L('Your own session with watts and heart rate comes from the morning calculation, which is still being built. For now, follow your usual planned session.', 'Tu sesión propia con vatios y pulso sale del cálculo de cada mañana, que todavía se está construyendo. Por ahora, sigue tu sesión planificada de siempre.'));
+      return;
+    }
+    const rows = mine || rowsOf('sessions');
+    if (!rows || !rows.length) { if (card) card.hidden = true; return; }
+    if (card) card.hidden = false;
     if (sessIdx >= rows.length) sessIdx = 0;
     const days = $('sess-days'); days.replaceChildren();
-    rows.forEach((s, i) => { const bt = el('button', null, wdFmt(pd(s.date)) + ' ' + pd(s.date).getUTCDate()); bt.setAttribute('aria-pressed', String(i === sessIdx)); bt.addEventListener('click', () => { sessIdx = i; render(); }); days.appendChild(bt); });
+    if (rows.length > 1) rows.forEach((s, i) => { const bt = el('button', null, wdFmt(pd(s.date)) + ' ' + pd(s.date).getUTCDate()); bt.setAttribute('aria-pressed', String(i === sessIdx)); bt.addEventListener('click', () => { sessIdx = i; render(); }); days.appendChild(bt); });
     const s = rows[sessIdx]; const steps = arr(s.steps);
-    txt('wk-title', s.title); txt('wk-eyebrow', 'Next ride · ' + uF('%A %b %-d')(pd(s.date)));
+    txt('wk-title', s.title);
+    txt('wk-eyebrow', mine ? L('Today', 'Hoy') : 'Next ride · ' + uF('%A %b %-d')(pd(s.date)));
     const meta = $('wk-meta'); meta.replaceChildren();
     const work = steps.filter((x) => x.int === 'active');
     const mm = (k, v) => { const sp = el('span'); sp.appendChild(document.createTextNode(k)); sp.appendChild(el('b', 'num', v)); meta.appendChild(sp); };
@@ -1013,10 +1088,14 @@
     if (mode === 'power') { svg.append('line').attr('x1', m.l).attr('x2', w - m.r).attr('y1', y(ftp)).attr('y2', y(ftp)).attr('stroke', 'rgba(255,255,255,.4)').attr('stroke-dasharray', '3 4'); svg.append('text').attr('class', 'tk').attr('x', w - m.r).attr('y', y(ftp) - 4).attr('text-anchor', 'end').text('FTP ' + ftp); }
 
     const ul = $('wk-steps'); ul.replaceChildren();
+    // Una zona que empieza en 0 se lee mejor como "bajo N" que como "0-N".
+    const band = (r, unit) => (!r ? null : (+r[0] <= 0 ? L('under ', 'bajo ') + r[1] + unit : r[0] + '–' + r[1] + unit));
     steps.forEach((st) => {
       const li = el('li'); const bar = el('i'); bar.style.background = colorOf(st); li.appendChild(bar);
-      const mid = el('div'); mid.appendChild(el('div', 'sn', st.name)); mid.appendChild(el('div', 'sd', st.min + ' min · ' + (mode === 'power' ? (st.hr ? 'HR ' + st.hr[0] + '–' + st.hr[1] : 'HR lags, ride by feel') : st.p[0] + '–' + st.p[1] + ' W'))); li.appendChild(mid);
-      li.appendChild(el('div', 'st num', mode === 'power' ? st.p[0] + '–' + st.p[1] + ' W' : st.hr ? st.hr[0] + '–' + st.hr[1] + ' bpm' : 'RPE 8'));
+      const pTxt = band(st.p, ' W'), hTxt = band(st.hr, '');
+      const mid = el('div'); mid.appendChild(el('div', 'sn', st.name));
+      mid.appendChild(el('div', 'sd', st.min + ' min · ' + (mode === 'power' ? (hTxt ? L('HR ', 'pulso ') + hTxt : L('HR lags, ride by feel', 'el pulso tarda, ve por sensación')) : (pTxt || '')))); li.appendChild(mid);
+      li.appendChild(el('div', 'st num', mode === 'power' ? (pTxt || '') : (hTxt ? band(st.hr, ' bpm') : 'RPE 8')));
       ul.appendChild(li);
     });
     const b64 = mode === 'power' ? s.fit_power_b64 : s.fit_hr_b64; const name = mode === 'power' ? s.fit_power_name : s.fit_hr_name;
