@@ -243,7 +243,22 @@
     return base;
   }
 
-  window.rrAccount = { syncNow, sendWorkout, chat, signedIn: () => !!session, status, openPanel: () => open() };
+  // Pide el bloque de la semana. Es la unica llamada a Claude que corre sola, y cuesta
+  // unos 21 centavos, asi que el servidor la rechaza si ya hay uno reciente. El modelo
+  // va ya calculado desde el telefono: Claude no entrena nada.
+  async function planSemanal(payload) {
+    if (!session) return null;
+    const { data, error } = await sb.functions.invoke('plan-semanal', { body: payload || {} });
+    if (error) {
+      let detail = '';
+      try { const b = await error.context.json(); if (b && b.error) detail = b.error; } catch (e) {}
+      console.error('plan-semanal', error, detail);
+      throw new Error(detail || t('err'));
+    }
+    return data;
+  }
+
+  window.rrAccount = { syncNow, sendWorkout, chat, planSemanal, signedIn: () => !!session, status, openPanel: () => open() };
 
   async function onSync() {
     $('ra-sync').disabled = true;

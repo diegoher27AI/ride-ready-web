@@ -201,6 +201,8 @@
     }
     return {
       listo: true, n: f.length, probados: pruebas.length,
+      // Los coeficientes finales, para poder simular "que pasa si hoy hago X".
+      coef: coefFinal,
       mae: b.mae, r2: b.r2,
       dentro_10: pruebas.length ? Math.round((pruebas.filter((p) => Math.abs(p.error) <= 10).length / pruebas.length) * 100) : null,
       pesos, pruebas: pruebas.slice(-60), prediccion_manana: manana,

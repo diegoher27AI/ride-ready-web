@@ -1139,9 +1139,13 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
   // ¿Este ciclista ya tiene datos suyos? (de su cuenta o escritos a mano, no los de ejemplo)
   // Si los tiene, la app nunca debe caer en el contenido de muestra: es mas honesto decir
   // que faltan datos de hoy que mostrar un entrenamiento que no es suyo.
+  // El ultimo dia de bienestar que es suyo de verdad. Se pregunta por la marca propia,
+  // no por la falta de la de ejemplo: una fila sin marca no es suya, y antes contaba
+  // como si lo fuera. Las actividades ya se comprobaban asi; esto las iguala.
+  const FUENTES_PROPIAS = ['intervals.icu', 'export', 'manual'];
   function ownWellness() {
     const wr = whoopRows() || [];
-    return wr.filter((x) => String(x.source || '') !== 'example' && isFinite(x.recovery)).slice(-1)[0] || null;
+    return wr.filter((x) => FUENTES_PROPIAS.includes(String(x.source || '')) && isFinite(x.recovery)).slice(-1)[0] || null;
   }
 
   // Lo que ya se entreno hoy. El titular, la tarjeta del entrenamiento y el gato miran
@@ -1165,8 +1169,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     const a = rowsOf('activities') || [];
     // Se pregunta por la marca propia, no por la falta de la de ejemplo: las actividades
     // de muestra no traen ninguna marca, asi que lo segundo daria siempre que si.
-    const propias = ['intervals.icu', 'manual', 'export'];
-    return a.some((x) => propias.includes(String(x.source || '')));
+    return a.some((x) => FUENTES_PROPIAS.includes(String(x.source || '')));
   }
 
   // Esconde una tarjeta que todavia no se puede calcular con datos propios. Devuelve true
@@ -1786,6 +1789,166 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
 
   // ---------- MODEL ----------
   function modelRow() { const m = firstOf('model'); return m; }
+  // ---------- la pestana Modelo, con el modelo propio ----------
+  // Todo esto sale de modelo.js, que corre aqui mismo y no cuesta nada. Si el modelo
+  // admite que no puede (pocos datos, sin senal), la tarjeta lo dice en vez de inventar.
+  let _modeloCache = null, _modeloClave = '';
+  function modeloPropio() {
+    if (!window.rrModelo) return null;
+    const acts = rowsOf('activities') || [];
+    const wh = whoopRows() || [];
+    const clave = acts.length + ':' + wh.length + ':' + (wh.length ? wh[wh.length - 1].date : '');
+    if (clave !== _modeloClave) { _modeloClave = clave; _modeloCache = window.rrModelo.calcular(acts, wh); }
+    return _modeloCache;
+  }
+
+  function renderModeloPropio() {
+    const M = modeloPropio(); if (!M) return;
+    const R = M.recuperacion, F = M.forma;
+    const ver = (id, mostrar) => { const c = $(id); if (c) c.hidden = !mostrar; };
+
+    // --- Recuperacion de manana ---
+    ver('card-fc', R.listo && R.prediccion_manana != null);
+    if (R.listo && R.prediccion_manana != null) {
+      const v = R.prediccion_manana;
+      txt('fc-h', L('Tomorrow’s recovery', 'Tu recuperación de mañana'));
+      txt('fc-v', fmt0(v)); txt('fc-u', L('predicted', 'predicho'));
+      const dot = $('fc-dot'); if (dot) dot.style.left = clamp(v, 0, 100) + '%';
+      const band = $('fc-band');
+      if (band) { const lo = clamp(v - R.mae, 0, 100), hi = clamp(v + R.mae, 0, 100); band.style.left = lo + '%'; band.style.width = (hi - lo) + '%'; }
+      txt('fc-cap', L(
+        `Give or take ${fmt0(R.mae)} points. Learned from your own ${R.n} days: trained on the past, tested on the days that came after, never the other way round.`,
+        `Más o menos ${fmt0(R.mae)} puntos. Aprendido de tus propios ${R.n} días: se entrena con el pasado y se prueba con los días que vinieron después, nunca al revés.`));
+    }
+
+    // --- Que pasa manana segun lo que hagas hoy ---
+    const host = $('scen'); const puedeScen = R.listo && window.rrModelo.CAMPOS;
+    ver('card-scen', puedeScen);
+    if (puedeScen && host) {
+      host.replaceChildren();
+      const wh = whoopRows() || []; const hoy = wh.filter((x) => isFinite(x.recovery)).slice(-1)[0];
+      txt('scen-h', L('What today does to tomorrow morning', 'Lo que hoy le hace a mañana'));
+      txt('scen-cap', L('Your own model, with today’s numbers. Same sleep, only the training changes.',
+        'Tu propio modelo, con tus números de hoy. El mismo sueño, solo cambia el entrenamiento.'));
+      const opciones = [
+        [L('Rest', 'Descanso'), 0],
+        [L('Easy 45 min', 'Suave 45 min'), 30],
+        [L('Normal session', 'Sesión normal'), 80],
+        [L('Hard day', 'Día duro'), 150],
+      ];
+      opciones.forEach(([etiqueta, carga]) => {
+        const p = predecirCon(hoy, carga);
+        if (p == null) return;
+        const row = el('div', 'sr');
+        const l = el('div', 'sl', etiqueta);
+        l.appendChild(el('small', null, L(`relative effort ~${carga}`, `esfuerzo relativo ~${carga}`)));
+        row.appendChild(l);
+        const bar = el('div', 'fb'); const i = el('i');
+        i.style.width = clamp(p, 0, 100) + '%'; i.style.left = '0';
+        i.style.background = p >= 67 ? '#30D158' : p >= 34 ? '#FFD60A' : '#FF453A';
+        bar.appendChild(i); row.appendChild(bar);
+        const val = el('div', 'fv num', fmt0(p) + '%'); row.appendChild(val);
+        host.appendChild(row);
+      });
+    }
+
+    // --- Que mueve tu recuperacion ---
+    const hd = $('drv');
+    ver('card-drv', R.listo && R.pesos && R.pesos.length);
+    if (R.listo && hd && R.pesos && R.pesos.length) {
+      hd.replaceChildren();
+      txt('drv-cap', L(
+        `Learned from your own ${R.n} days. Each bar is how much that moves your next-morning recovery, holding the rest still.`,
+        `Aprendido de tus propios ${R.n} días. Cada barra es cuánto mueve eso tu recuperación de la mañana siguiente, dejando lo demás quieto.`));
+      const mx = Math.max(4, ...R.pesos.map((x) => Math.abs(x.peso)));
+      R.pesos.forEach((e) => {
+        const v = e.peso; const flojo = Math.abs(v) < 1;
+        const row = el('div', 'fr'); row.appendChild(el('div', 'fl', e.etiqueta));
+        const bar = el('div', 'fb'); const i = el('i');
+        const w = Math.min(50, (Math.abs(v) / mx) * 50);
+        i.style.width = w + '%'; i.style.left = v < 0 ? (50 - w) + '%' : '50%';
+        i.style.background = flojo ? 'rgba(235,235,245,.35)' : v < 0 ? '#FF453A' : '#30D158';
+        bar.appendChild(i); row.appendChild(bar);
+        const val = el('div', 'fv num', (v > 0 ? '+' : '') + fmt1(v));
+        val.style.color = flojo ? 'var(--ink3)' : v < 0 ? '#FF6961' : '#30D158';
+        row.appendChild(val); hd.appendChild(row);
+      });
+    }
+
+    // --- Como responde tu cuerpo al entrenamiento ---
+    // Con mediciones propias se muestran sus constantes. Sin ellas, pero con historial
+    // suficiente, igual se muestra con los valores de libro Y la invitacion a escribir
+    // sus mejores 20 min: esconderla dejaria al ciclista sin saber que puede desbloquearla.
+    // Solo se esconde cuando no hay casi nada, que es cuando el aviso de arriba manda.
+    const hayResp = !!F && (F.propio || F.n > 0 || R.listo);
+    ver('card-resp', hayResp);
+    if (hayResp) {
+      const ch = $('resp-chips'); if (ch) ch.replaceChildren();
+      const chip = (k, v, d) => { if (!ch) return; const c = el('div', 'chip'); c.appendChild(el('div', 'k', k)); c.appendChild(el('div', 'v num', String(v))); c.appendChild(el('div', 'd', d || '')); ch.appendChild(c); };
+      txt('resp-cap', F.propio
+        ? L(`Fitted to your own ${F.n} power readings.`, `Ajustado a tus propias ${F.n} mediciones de potencia.`)
+        : L('Using the textbook values, because your data is not enough to fit your own yet.',
+            'Con los valores de libro, porque tus datos todavía no alcanzan para ajustar los tuyos.'));
+      chip(L('Fitness builds over', 'La forma se construye en'), F.tau_forma + ' d', F.propio ? L('yours', 'tuyo') : L('textbook', 'de libro'));
+      chip(L('Fatigue clears in', 'La fatiga se va en'), F.tau_fatiga + ' d', F.propio ? L('yours', 'tuyo') : L('textbook', 'de libro'));
+      txt('resp-note', F.propio
+        ? L(`Explains ${fmt0(F.r2 * 100)}% of your 20-minute power. Your fitness is slower and your fatigue faster than the 42 and 7 of the textbook, or the other way round: these are yours.`,
+            `Explica el ${fmt0(F.r2 * 100)}% de tu potencia de 20 minutos. Estos números son tuyos, no los 42 y 7 de libro.`)
+        : F.motivo === 'pocas-potencias'
+          ? L(`Only ${F.n} power readings so far. Add your best 20 minutes in Load data and this becomes yours.`,
+              `Solo ${F.n} mediciones de potencia hasta ahora. Escribe tus mejores 20 minutos en Cargar datos y esto pasa a ser tuyo.`)
+          : F.motivo === 'datos-no-alcanzan'
+            ? L(`Several very different values fit your data equally well (${F.rango_forma ? F.rango_forma.join(' to ') : '?'} days), so there is nothing solid to claim yet.`,
+                `Varios valores muy distintos explican tus datos igual de bien (de ${F.rango_forma ? F.rango_forma.join(' a ') : '?'} días), así que todavía no hay nada firme que afirmar.`)
+            : L('Your power readings do not follow the training load closely enough to fit this yet.',
+                'Tus mediciones de potencia todavía no siguen a la carga lo suficiente como para ajustar esto.'));
+    }
+
+    // --- Acierto del modelo ---
+    const pruebas = R.listo ? (R.pruebas || []) : [];
+    ver('card-acc', pruebas.length > 3);
+    if (pruebas.length > 3) {
+      txt('acc-cap', L(
+        `On the last ${pruebas.length} days the model missed by ${fmt1(R.mae)} points on average, and landed within 10 points ${fmt0(R.dentro_10)}% of the time.`,
+        `En los últimos ${pruebas.length} días el modelo se equivocó por ${fmt1(R.mae)} puntos en promedio, y quedó dentro de 10 puntos el ${fmt0(R.dentro_10)}% de las veces.`));
+      const box = $('c-acc');
+      if (box) {
+        const { w, h, svg, tip } = frame(box, 180); const m = { t: 10, r: 24, b: 22, l: 4 };
+        const rows = pruebas.map((x) => ({ ...x, dt: pd(x.date) }));
+        const x = d3.scaleUtc(d3.extent(rows, (d) => d.dt), [m.l + 6, w - m.r]);
+        const y = d3.scaleLinear([0, 100], [h - m.b, m.t]);
+        yAxis(svg, y, m.l, w, 4, d3.format('d'));
+        [['real', '#30D158'], ['predicho', '#7D7AFF']].forEach(([k, c]) => {
+          svg.append('path').datum(rows).attr('d', d3.line().x((d) => x(d.dt)).y((d) => y(d[k])).curve(d3.curveMonotoneX))
+            .attr('fill', 'none').attr('stroke', c).attr('stroke-width', 1.8).attr('opacity', k === 'predicho' ? .8 : 1)
+            .attr('stroke-dasharray', k === 'predicho' ? '4 3' : null);
+        });
+        xAxisTime(svg, x, h - m.b, w);
+        crosshair(svg, box, tip, rows, x, m, h, w, (d) => [{ t: dFmt(d.dt) },
+          { c: '#30D158', t: L('Real ', 'Real ') + d.real + '%' },
+          { c: '#7D7AFF', t: L('Predicted ', 'Predicho ') + d.predicho + '%' }]);
+      }
+    }
+  }
+
+  // Predice la recuperacion de manana cambiando solo la carga de hoy.
+  function predecirCon(hoy, carga) {
+    const M = modeloPropio(); if (!M || !M.recuperacion.listo || !hoy) return null;
+    const R = M.recuperacion;
+    // Se rehace la fila de hoy con la carga que se quiera probar.
+    const f = {
+      rec: hoy.recovery, hrv: hoy.hrv, rhr: hoy.rhr,
+      hrv_base: isFinite(hoy.hrv_30d) && hoy.hrv_30d > 0 ? hoy.hrv_30d : hoy.hrv,
+      rhr_base: isFinite(hoy.rhr_30d) && hoy.rhr_30d > 0 ? hoy.rhr_30d : hoy.rhr,
+      sueno: hoy.asleep_h != null ? hoy.asleep_h : 7.5,
+      carga,
+    };
+    const x = window.rrModelo.CAMPOS.map(([, fn]) => fn(f));
+    if (x.some((v) => !isFinite(v)) || !R.coef) return null;
+    const p = R.coef.reduce((s, c, i) => s + c * x[i], 0);
+    return Math.round(Math.max(1, Math.min(100, p)));
+  }
+
   function renderForecast() {
     const m = modelRow(); if (!m) return; const R = obj(m.recovery) || {}; const fc = obj(R.forecast);
     if (!fc || fc.recovery == null) { txt('fc-v', '—'); txt('fc-cap', 'No forecast yet: send this morning\'s Whoop numbers first.'); return; }
@@ -1833,11 +1996,15 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     txt('resp-note', 'Your fatigue lingers much longer than the textbook 7 days, so hard blocks keep your power down for 2 to 3 weeks and your best form arrives about ' + F.peak_day + ' days after the work. Taper 10 to 14 days before key events. Fit quality is moderate (R² ' + fmt2(+F.r2) + ', ±' + fmt0(+F.rmse_w) + ' W), so use it as a guide, not a law.');
   }
   function renderYears() {
-    const r = rowsOf('fitness_hist'); const m = modelRow(); if (!r || !m) return; const H = obj(m.history) || {}; const P = obj(H.all_time_peak) || {};
-    const rows = r.map((d) => ({ dt: pd(d.date), date: d.date, f: +d.fitness })).sort((a, b) => a.dt - b.dt);
+    const r = rowsOf('fitness_hist'); if (!r || !r.length) { const c = $('card-years'); if (c) c.hidden = true; return; }
+    const rows = r.map((d) => ({ dt: pd(d.date), date: d.date, f: +d.fitness })).filter((d) => isFinite(d.f)).sort((a, b) => a.dt - b.dt);
+    if (rows.length < 2) { const c = $('card-years'); if (c) c.hidden = true; return; }
+    const c0 = $('card-years'); if (c0) c0.hidden = false;
     const last = rows[rows.length - 1];
-    txt('yrs-h', 'Your training since ' + rows[0].date.slice(0, 4)); txt('yrs-v', fmt0(last.f));
-    txt('yrs-d', fmt0(last.f / +P.peak_fitness * 100) + '% of your ' + P.year + ' peak');
+    // El pico sale de tu propio historial, no del modelo de ejemplo.
+    const pico = rows.reduce((a, d) => (d.f > a.f ? d : a), rows[0]);
+    txt('yrs-h', L('Your training since ', 'Tu entrenamiento desde ') + rows[0].date.slice(0, 4)); txt('yrs-v', fmt0(last.f));
+    txt('yrs-d', pico.f > 0 ? fmt0((last.f / pico.f) * 100) + L('% of your peak, ', '% de tu pico, ') + uF('%b %Y')(pico.dt) : '');
     const box = $('c-years'); const { w, h, svg, tip } = frame(box, 200); const mg = { l: 6, r: 30, t: 10, b: 22 };
     const x = d3.scaleUtc().domain(d3.extent(rows, (d) => d.dt)).range([mg.l, w - mg.r]);
     const y = d3.scaleLinear().domain([0, d3.max(rows, (d) => d.f) * 1.08]).nice().range([h - mg.b, mg.t]);
@@ -1850,11 +2017,26 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     svg.append('text').attr('class', 'tk').attr('x', x(pk.dt)).attr('y', y(pk.f) - 8).attr('text-anchor', 'middle').style('fill', '#fff').text('peak ' + fmt0(pk.f));
     svg.append('circle').attr('cx', x(last.dt)).attr('cy', y(last.f)).attr('r', 4.5).attr('fill', '#FF9F0A').attr('stroke', '#000');
     crosshair(svg, box, tip, rows, x, mg, h, w, (d) => [{ t: uF('%b %-d, %Y')(d.dt) }, { t: 'Fitness ' + fmt0(d.f), c: '#0A84FF' }]);
-    const yrs = arr(H.years).filter((Y) => +Y.year < 2026);
-    const avgPeak = d3.mean(yrs, (Y) => +Y.peak_fitness);
+    // Estos recuadros salian del modelo de ejemplo (su pico, sus anos, sus pausas).
+    // Ahora se calculan del historial de forma fisica propio.
     const c = $('yrs-chips'); c.replaceChildren();
-    [['All-time peak', fmt0(+P.peak_fitness), uF('%b %Y')(pd(P.peak_date))], ['Typical yearly peak', fmt0(avgPeak), 'average ' + yrs[0].year + '–' + yrs[yrs.length - 1].year], ['Fastest build', '+' + fmt0(+H.max_6wk_ramp), 'in 6 weeks, ' + uF('%b %Y')(pd(H.max_ramp_end))], ['Breaks of 2+ weeks', fmt0(+H.long_breaks), 'since ' + rows[0].date.slice(0, 4)]]
-      .forEach(([k, v, d]) => { const ch = el('div', 'chip'); ch.appendChild(el('div', 'k', k)); ch.appendChild(el('div', 'v num', v)); ch.appendChild(el('div', 'd', d)); c.appendChild(ch); });
+    const porAno = new Map();
+    rows.forEach((d) => { const a2 = d.date.slice(0, 4); const q = porAno.get(a2); if (!q || d.f > q.f) porAno.set(a2, d); });
+    const anos = [...porAno.keys()].sort();
+    const picoAnual = d3.mean([...porAno.values()], (d) => d.f);
+    // La subida mas rapida en 6 semanas (las muestras van cada 7 dias).
+    let subida = 0, subFin = null;
+    for (let i = 6; i < rows.length; i++) { const d2 = rows[i].f - rows[i - 6].f; if (d2 > subida) { subida = d2; subFin = rows[i].dt; } }
+    // Pausas: tramos de 2 semanas o mas con la forma cayendo sin parar.
+    let pausas = 0, bajando = 0;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i].f < rows[i - 1].f) { bajando++; if (bajando === 2) pausas++; } else bajando = 0;
+    }
+    const filas = [[L('All-time peak', 'Tu mejor marca'), fmt0(pico.f), uF('%b %Y')(pico.dt)]];
+    if (anos.length > 1) filas.push([L('Typical yearly peak', 'Pico típico del año'), fmt0(picoAnual), L('average ', 'promedio ') + anos[0] + '–' + anos[anos.length - 1]]);
+    if (subida > 0 && subFin) filas.push([L('Fastest build', 'Subida más rápida'), '+' + fmt0(subida), L('in 6 weeks, ', 'en 6 semanas, ') + uF('%b %Y')(subFin)]);
+    filas.push([L('Drops of 2+ weeks', 'Bajadas de 2+ semanas'), fmt0(pausas), L('since ', 'desde ') + rows[0].date.slice(0, 4)]);
+    filas.forEach(([k, v, d]) => { const ch = el('div', 'chip'); ch.appendChild(el('div', 'k', k)); ch.appendChild(el('div', 'v num', v)); ch.appendChild(el('div', 'd', d)); c.appendChild(ch); });
   }
   function renderAcc() {
     const m = modelRow(); if (!m) return; const R = obj(m.recovery) || {}; const lg = (rowsOf('model_log') || []).map((d) => ({ date: d.date, dt: pd(d.date), p: d.predicted == null || d.predicted === '' ? null : +d.predicted, a: d.actual == null || d.actual === '' ? null : +d.actual, lo: +d.low, hi: +d.high })).filter((d) => d.p != null).sort((a, b) => a.dt - b.dt);
@@ -2306,6 +2488,12 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     'Your model is not built yet': 'Tu modelo todavía no existe',
     "This tab learns from your own data: how your body answers to training, and what your recovery will be tomorrow. It needs the morning calculation on the server, which is still being built. Nothing here would be yours yet, so it stays hidden instead of showing someone else's numbers.": 'Esta pestaña aprende de tus propios datos: cómo responde tu cuerpo al entrenamiento y cuál será tu recuperación mañana. Necesita el cálculo de cada mañana en el servidor, que todavía se está construyendo. Nada de aquí sería tuyo todavía, así que se esconde en vez de mostrarte números de otra persona.',
     'Reference 8 h': 'Referencia 8 h',
+    'Tomorrow’s recovery': 'Tu recuperación de mañana',
+    'What today does to tomorrow morning': 'Lo que hoy le hace a mañana',
+    'What drives your recovery': 'Qué mueve tu recuperación',
+    'How your body responds to training': 'Cómo responde tu cuerpo al entrenamiento',
+    'Is the model right?': '¿El modelo acierta?',
+    'fitness today': 'forma física hoy',
     'Long ride 4 h': 'Rodada larga 4 h', 'Race / very hard': 'Carrera / muy duro', 'Share cancelled.': 'Cancelado.',
     'Sign in to bring in your own data.': 'Entra a tu cuenta para traer tus datos.',
     'Tap Refresh to bring in your history.': 'Toca Actualizar para traer tu historial.',
@@ -2419,15 +2607,54 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
       const sin = misDatos();
       const aviso = $('card-sinmodelo'); if (aviso) aviso.hidden = !sin;
       ['card-fc', 'card-scen', 'card-drv', 'card-resp', 'card-years', 'card-acc'].forEach((id) => { const c = $(id); if (c) c.hidden = sin; });
-      if (!sin) { safe(renderForecast); safe(renderScen); safe(renderDrivers); safe(renderResp); safe(renderYears); safe(renderAcc); }
+      if (sin) {
+        // Con datos propios: el modelo se calcula aqui mismo, gratis, y llena la pestana.
+        // Si no alcanza para algo, esa tarjeta se esconde sola y el aviso queda arriba.
+        safe(renderModeloPropio);
+        safe(renderYears);
+        const M = modeloPropio();
+        // "Algo util" es que el modelo de recuperacion ya corra, o que las constantes
+        // sean suyas de verdad. Tener el objeto no basta: con pocos datos devuelve los
+        // valores de libro, y entonces la pestana quedaba vacia y sin explicacion.
+        const algo = M && (M.recuperacion.listo || (M.forma && M.forma.propio));
+        const aviso2 = $('card-sinmodelo'); if (aviso2) aviso2.hidden = !!algo;
+      } else { safe(renderForecast); safe(renderScen); safe(renderDrivers); safe(renderResp); safe(renderYears); safe(renderAcc); }
     }
     safe(translateAll);
   }
   dash.onData(render);
+  // Al abrir la app, si toca, se pide el bloque de la semana. Va al final y en segundo
+  // plano: la pantalla ya se dibujo, asi que el ciclista no espera por esto.
+  setTimeout(() => { safe(() => pedirBloqueSiToca()); }, 1500);
 
   // Lo que el chat del entrenador necesita saber para responder con datos de verdad,
   // y la forma de aplicar lo que el entrenador decida cambiar.
+  // Pide el bloque de la semana si de verdad hace falta. Una vez por semana, y solo
+  // cuando el ciclista abre la app: quien no la abre no gasta. El servidor igual tiene
+  // su propio tope, por si acaso.
+  const CLAVE_PLAN = 'rr_plan_pedido';
+  async function pedirBloqueSiToca() {
+    if (!window.rrAccount || !window.rrAccount.planSemanal || !window.rrAccount.signedIn()) return;
+    if (!misDatos()) return;
+    const hoy = todayIsoLocal();
+    // ¿Ya hay plan para los proximos dias? Si lo hay, no se pide nada.
+    const futuros = (rowsOf('plan') || []).filter((p) => p.date > hoy);
+    const M = modeloPropio();
+    const pide = M && M.necesitaReplan === true;
+    if (futuros.length >= 4 && !pide) return;
+    // Y no se intenta mas de una vez al dia, aunque abra la app diez veces.
+    try { if (localStorage.getItem(CLAVE_PLAN) === hoy) return; localStorage.setItem(CLAVE_PLAN, hoy); } catch (e) {}
+    try {
+      const r = await window.rrAccount.planSemanal({ modelo: M, contexto: window.rrCoach.context() });
+      if (r && r.ok && !r.saltado && dash.refresh) dash.refresh();
+    } catch (e) {
+      // Sin saldo o sin red: no es motivo para romperle la pantalla al ciclista.
+      console.error('plan-semanal', e && e.message);
+    }
+  }
+
   window.rrCoach = {
+    pedirBloqueSiToca,
     context() {
       const c = dayCall(); const s = pmcState(); const z = firstOf('zones') || {};
       const w = whoopRows(); const wl = w && w.length ? w[w.length - 1] : null;
