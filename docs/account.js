@@ -270,6 +270,7 @@
       distance_km: m.distance_km != null ? m.distance_km : null,
       climb_m: m.climb_m != null ? m.climb_m : null,
       notes: m.notes ? String(m.notes).slice(0, 600) : null,
+      sabe_ia: m.sabe_ia ? String(m.sabe_ia).slice(0, 900) : null,
     };
     const { data, error } = await sb.from('goals').insert(fila).select().single();
     if (error) throw new Error(error.message);

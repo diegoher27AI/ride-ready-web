@@ -1800,7 +1800,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
       if (mal) { st.textContent = mal; return; }
       guardar.disabled = true; st.textContent = L('Saving…', 'Guardando…');
       try {
-        if (sabe) m.notes = [m.notes, sabe].filter(Boolean).join(' ').slice(0, 600);
+        if (sabe) m.sabe_ia = sabe.slice(0, 900);
         await window.rrAccount.guardarMeta(m);
         quitar();
         // Con una meta nueva, el bloque de la semana deberia rehacerse apuntando ahi.
@@ -2924,16 +2924,24 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     const M = modeloPropio();
     const pide = M && M.necesitaReplan === true;
     if (futuros.length >= 4 && !pide) return;
-    // Y no se intenta mas de una vez al dia, aunque abra la app diez veces.
-    try { if (localStorage.getItem(CLAVE_PLAN) === hoy) return; localStorage.setItem(CLAVE_PLAN, hoy); } catch (e) {}
+    // No se intenta mas de una vez al dia, aunque abra la app diez veces.
+    // Ojo con el orden: antes se marcaba el dia ANTES de llamar, asi que si la llamada
+    // fallaba (sin red, funcion sin subir, sin saldo) se quemaba el dia entero y no se
+    // volvia a intentar hasta manana. Ahora se marca solo cuando de verdad se contesto.
+    try { if (localStorage.getItem(CLAVE_PLAN) === hoy) return; } catch (e) {}
+    if (pidiendoBloque) return;          // y no dos veces a la vez
+    pidiendoBloque = true;
     try {
       const r = await window.rrAccount.planSemanal({ modelo: M, contexto: window.rrCoach.context() });
+      try { localStorage.setItem(CLAVE_PLAN, hoy); } catch (e) {}
       if (r && r.ok && !r.saltado && dash.refresh) dash.refresh();
     } catch (e) {
-      // Sin saldo o sin red: no es motivo para romperle la pantalla al ciclista.
+      // Sin saldo o sin red: no es motivo para romperle la pantalla al ciclista, y
+      // tampoco para dejar de intentarlo la proxima vez que abra la app.
       console.error('plan-semanal', e && e.message);
-    }
+    } finally { pidiendoBloque = false; }
   }
+  let pidiendoBloque = false;
 
   window.rrCoach = {
     pedirBloqueSiToca,

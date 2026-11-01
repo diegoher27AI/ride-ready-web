@@ -136,7 +136,10 @@ const ok = (n, c, extra) => { if (c) { pass++; console.log('  ok  ', n); } else 
   ok('le manda el nombre y la fecha', r.window.__preguntas[0].name === 'Haute Route Alps' && !!r.window.__preguntas[0].goal_date);
   ok('muestra lo que contesto', /7 etapas/.test(r.q('meta-st')), r.q('meta-st').slice(0, 80));
   r.guardar(); await esperar(80);
-  ok('y lo guarda con la meta', /7 etapas/.test(r.window.__guardadas[0].notes || ''), r.window.__guardadas[0].notes);
+  // Lo que sabe el entrenador va en su propia columna, no mezclado con tus notas:
+  // asi se puede mostrar aparte y queda claro que lo escribio la IA, no vos.
+  ok('y lo guarda aparte de tus notas', /7 etapas/.test(r.window.__guardadas[0].sabe_ia || ''), r.window.__guardadas[0].sabe_ia);
+  ok('sin ensuciar tus notas', !r.window.__guardadas[0].notes, r.window.__guardadas[0].notes);
 
   console.log('\nSi el entrenador NO conoce el evento, se guarda igual:');
   r = run({ METAS: [], RESPUESTA_IA: 'No reconozco ese evento. Decime distancia y desnivel.' });

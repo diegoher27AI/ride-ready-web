@@ -166,6 +166,30 @@ const PLAN_LLENO = [1, 2, 3, 4, 5].map((n) => ({
     ok('no quedan errores de la app', !errors.some((e) => /saldo/.test(e)) || true);
   }
 
+  console.log('\nSi falla, lo vuelve a intentar: no se quema el dia');
+  {
+    // Esto paso de verdad: la funcion no estaba subida, la llamada fallo, y como el dia
+    // ya se habia marcado como pedido, la app no lo intento mas hasta el dia siguiente.
+    const w = run({ PLAN: [], RESPUESTA: { __error: 'no existe la funcion' } });
+    await esperar(1800);
+    ok('se intento', w.__llamadas.length === 1, w.__llamadas.length);
+    const marcado = w.localStorage.getItem('rr_plan_pedido');
+    ok('NO deja el dia marcado como pedido', !marcado, marcado);
+    // Al volver a abrir la app ese mismo dia, se intenta de nuevo.
+    await w.rrCoach.pedirBloqueSiToca();
+    ok('lo vuelve a intentar', w.__llamadas.length === 2, w.__llamadas.length);
+  }
+
+  console.log('\nSi funciona, si queda marcado y no se repite');
+  {
+    const w = run({ PLAN: [] });
+    await esperar(1800);
+    ok('se llamo una vez', w.__llamadas.length === 1, w.__llamadas.length);
+    ok('queda marcado', !!w.localStorage.getItem('rr_plan_pedido'));
+    await w.rrCoach.pedirBloqueSiToca();
+    ok('y ya no se repite', w.__llamadas.length === 1, w.__llamadas.length);
+  }
+
   console.log('\nErrores de la app:', errors.length ? errors.slice(0, 3) : 'ninguno');
   console.log(`\n${pass} pasaron, ${fail} fallaron`);
   process.exit(fail ? 1 : 0);
