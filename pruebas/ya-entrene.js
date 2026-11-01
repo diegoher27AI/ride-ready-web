@@ -59,7 +59,9 @@ function run(HOY, REC, lang = 'es') {
   window.__cb && window.__cb();
   const doc = window.document;
   const q = (id) => { const e = doc.getElementById(id); return e ? (e.textContent || '').trim().replace(/\s+/g, ' ') : ''; };
-  return { title: q('hdr-title'), sub: q('hdr-sub'), gato: q('pet-say'), badge: q('pet-badge') };
+  const svg = () => { const e = doc.getElementById('pet-art'); return e ? e.innerHTML : ''; };
+  return { title: q('hdr-title'), sub: q('hdr-sub'), gato: q('pet-say'), badge: q('pet-badge'), svg: svg(),
+    clase: (doc.getElementById('pet-badge') || {}).className || '' };
 }
 
 let pass = 0, fail = 0;
@@ -104,6 +106,29 @@ console.log('\nEn ingles');
 r = run({ moving_min: 90, relative_effort: 75 }, 70, 'en');
 ok('el gato en ingles reconoce lo hecho', /90 min done today/i.test(r.gato), r.gato);
 ok('el titular en ingles tambien', /already trained today/i.test(r.sub), r.sub.slice(0, 110));
+
+console.log('\nEl dibujo del gato cambia cuando ya entrenaste:');
+{
+  const antes = run(null, 72);
+  const desp = run({ moving_min: 90, relative_effort: 75 }, 72);
+  ok('el dibujo NO es el mismo', antes.svg !== desp.svg);
+  // Se busca la medalla en si (el circulo al cuello), no un color suelto: el amarillo
+  // ya aparece en otras partes del dibujo y la comprobacion no decia nada.
+  const medalla = (x) => /circle cx="110" cy="158" r="11"/.test(x);
+  const toalla = (x) => /M86 112 q-10 26/.test(x);
+  ok('aparece la medalla', medalla(desp.svg) && !medalla(antes.svg));
+  ok('aparece la toalla', toalla(desp.svg) && !toalla(antes.svg));
+  ok('la etiqueta dice que ya cumplio', /cumplió/i.test(desp.badge), desp.badge);
+  ok('antes NO decia eso', !/cumplió/i.test(antes.badge), antes.badge);
+  ok('la etiqueta tiene su propio color', /s-hecho/.test(desp.clase), desp.clase);
+}
+
+console.log('\nSi tocaba descansar y entreno igual, NO se le pone medalla:');
+{
+  const malo = run({ moving_min: 90, relative_effort: 90 }, 25);
+  ok('sin medalla', !/circle cx="110" cy="158" r="11"/.test(malo.svg));
+  ok('y la etiqueta no lo felicita', !/cumplió/i.test(malo.badge), malo.badge);
+}
 
 console.log('\nErrores de la app:', errors.length ? errors : 'ninguno');
 if (errors.length) fail++;

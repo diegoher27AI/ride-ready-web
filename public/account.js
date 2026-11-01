@@ -258,7 +258,47 @@
     return data;
   }
 
-  window.rrAccount = { syncNow, sendWorkout, chat, planSemanal, signedIn: () => !!session, status, openPanel: () => open() };
+  // Las metas del ciclista. Se guardan en su cuenta, y solo el las ve.
+  async function guardarMeta(m) {
+    if (!session) throw new Error(t('err'));
+    const fila = {
+      user_id: session.user.id,
+      name: String(m.name || '').slice(0, 120),
+      goal_date: m.goal_date,
+      end_date: m.end_date || null,
+      priority: ['A', 'B', 'C'].includes(m.priority) ? m.priority : 'A',
+      distance_km: m.distance_km != null ? m.distance_km : null,
+      climb_m: m.climb_m != null ? m.climb_m : null,
+      notes: m.notes ? String(m.notes).slice(0, 600) : null,
+    };
+    const { data, error } = await sb.from('goals').insert(fila).select().single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+  async function borrarMeta(id) {
+    if (!session) throw new Error(t('err'));
+    const { error } = await sb.from('goals').delete().eq('id', id).eq('user_id', session.user.id);
+    if (error) throw new Error(error.message);
+    return true;
+  }
+  async function listarMetas() {
+    if (!session) return [];
+    const { data } = await sb.from('goals').select('*').eq('user_id', session.user.id).order('goal_date', { ascending: true });
+    return data || [];
+  }
+  // Le pregunta al entrenador que sabe del evento. Gasta un mensaje del cupo diario,
+  // asi que solo se llama cuando el ciclista lo pide tocando el boton.
+  async function investigarMeta(m) {
+    if (!session) throw new Error(t('err'));
+    const pregunta = `Voy a hacer "${m.name}"${m.goal_date ? ` el ${m.goal_date}` : ''}${m.end_date ? ` hasta el ${m.end_date}` : ''}.`
+      + ` ¿Qué sabes de ese evento? Si lo reconoces, dime en 3 o 4 frases cómo es: distancia, desnivel, si es por etapas,`
+      + ` qué tipo de esfuerzo exige y qué habría que entrenar. Si NO lo reconoces, dilo claramente y no inventes nada:`
+      + ` di qué datos necesitas que yo te dé. No uses el guion largo.`;
+    const data = await chat({ messages: [{ role: 'user', content: pregunta }], context: {} });
+    return (data && data.text) || '';
+  }
+
+  window.rrAccount = { guardarMeta, borrarMeta, listarMetas, investigarMeta, syncNow, sendWorkout, chat, planSemanal, signedIn: () => !!session, status, openPanel: () => open() };
 
   async function onSync() {
     $('ra-sync').disabled = true;

@@ -128,6 +128,7 @@
 .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .day { text-align: center; padding: 8px 2px 10px; border-radius: 16px; background: rgba(255,255,255,.04); border: 1px solid transparent; min-width: 0; }
 .day.today { background: rgba(10,132,255,.22); border-color: rgba(10,132,255,.55); }
+.pet-badge.s-hecho { background: rgba(100,210,255,.18); color: #64D2FF; border-color: rgba(100,210,255,.45); }
 .day.tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .day.tap:active { transform: scale(.96); }
 .day.viendo { border-color: rgba(255,159,10,.85); box-shadow: 0 0 0 1px rgba(255,159,10,.45); }
@@ -171,6 +172,32 @@
 .ins b { font-size: 15px; display: block; margin-bottom: 2px; }
 .ins p { margin: 0; font-size: 13px; color: var(--ink2); line-height: 1.4; }
 
+.meta-mas { appearance: none; border: 1px solid var(--hair); background: var(--glass2); color: var(--ink);
+  width: 34px; height: 34px; border-radius: 50%; font: 700 22px/1 -apple-system, system-ui, sans-serif; cursor: pointer; flex: none; }
+.meta-mas:active { transform: scale(.94); }
+.meta-quitar { appearance: none; border: 0; background: none; color: var(--ink3); font: 600 12px -apple-system, system-ui, sans-serif;
+  cursor: pointer; padding: 6px 0 0; }
+.meta-sheet { position: fixed; inset: 0; z-index: 63; display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(0,0,0,.6); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.meta-panel { width: 100%; max-width: 560px; max-height: 92vh; overflow: auto; background: rgba(28,28,32,.98);
+  border: 1px solid var(--hair); border-radius: 24px 24px 0 0; color: var(--ink);
+  padding: 18px 16px calc(24px + env(safe-area-inset-bottom,0px)); }
+.meta-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.meta-top h2 { font-size: 21px; margin: 0; font-weight: 700; }
+.meta-x { appearance: none; border: 1px solid var(--hair); background: var(--glass2); color: var(--ink);
+  border-radius: 999px; padding: 8px 14px; font: 600 14px -apple-system, system-ui, sans-serif; cursor: pointer; }
+.meta-f { display: grid; gap: 4px; font-size: 12px; color: var(--ink2); font-weight: 600; margin-bottom: 10px; }
+.meta-f input, .meta-f select, .meta-f textarea { width: 100%; box-sizing: border-box; padding: 11px; border-radius: 12px;
+  border: 1px solid var(--hair); background: rgba(255,255,255,.08); color: var(--ink);
+  font: 600 16px/1.3 -apple-system, system-ui, sans-serif; }
+.meta-f textarea { resize: vertical; font-weight: 400; }
+.meta-dos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.meta-st { font-size: 13px; line-height: 1.45; color: var(--ink2); margin: 4px 0 12px; min-height: 1.2em; }
+.meta-botones { display: flex; gap: 8px; flex-wrap: wrap; }
+.meta-btn { appearance: none; border: 0; border-radius: 14px; background: var(--blue); color: #fff;
+  font: 600 15px -apple-system, system-ui, sans-serif; padding: 12px 16px; cursor: pointer; min-height: 44px; flex: 1; }
+.meta-btn.ghost { background: var(--glass2); border: 1px solid var(--hair); color: var(--ink); }
+.meta-btn:disabled { opacity: .5; }
 /* races */
 .race { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
 .race .big { font-size: 34px; min-width: 76px; text-align: center; font-weight: 800; line-height: 1; letter-spacing: -.02em; }
@@ -1589,15 +1616,29 @@
     });
 
     const host = $('races'); host.replaceChildren();
-    const card = el('div', 'g'); card.appendChild(el('h3', null, L('Goals', 'Metas')));
+    const card = el('div', 'g');
+    // Encabezado con el boton de agregar. Antes la unica forma de poner una meta era
+    // decirselo al entrenador en el chat, y no se notaba que se podia.
+    const cab = el('div'); cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px';
+    cab.appendChild(el('h3', null, L('Goals', 'Metas')));
+    if (window.rrAccount && window.rrAccount.signedIn && window.rrAccount.signedIn()) {
+      const mas = el('button', 'meta-mas'); mas.type = 'button';
+      mas.setAttribute('aria-label', L('Add a goal', 'Agregar una meta'));
+      mas.textContent = '+';
+      mas.addEventListener('click', () => abrirMeta());
+      cab.appendChild(mas);
+    }
+    card.appendChild(cab);
     card.appendChild(el('p', 'cap', goals.length
       ? L('Countdown and where this block fits.', 'Cuenta regresiva y dónde encaja este bloque.')
-      : L('No goals yet. Tell your coach what you are training for.', 'Todavía no hay metas. Cuéntale a tu entrenador para qué entrenas.')));
+      : L('No goals yet. Tap + to add one, or tell your coach in the chat.', 'Todavía no hay metas. Toca + para agregar una, o cuéntale a tu entrenador en el chat.')));
     host.appendChild(card);
 
     // Metas de verdad si las hay; si no, las del ejemplo.
     const list = goals.length
-      ? goals.map((g) => ({ n: g.name, d: g.date, from: null, note: g.notes || '' }))
+      ? goals.map((g) => ({ n: g.name, d: g.date, hasta: g.end_date || null, from: null, id: g.id,
+          note: [g.distance_km ? fmt0(g.distance_km) + ' km' : null, g.climb_m ? fmt0(g.climb_m) + ' m' : null, g.notes].filter(Boolean).join(' · '),
+          sabe: g.sabe_ia || null, propia: true }))
       : misDatos() ? []
       : (b ? arr(b.races).filter((r) => pd(r.d) >= today) : []);
     list.forEach((r) => {
@@ -1607,9 +1648,142 @@
       const race = el('div', 'race'); race.style.padding = '12px 0'; race.style.borderTop = '1px solid var(--hair)';
       const l = el('div'); l.appendChild(el('div', 'big num', String(days))); l.appendChild(el('div', 'unit', L('days', 'días'))); race.appendChild(l);
       const rr = el('div'); rr.appendChild(el('div', 'name', r.n));
-      rr.appendChild(el('div', 'when', uF('%a %b %-d, %Y')(pd(r.d)) + (r.note ? ' · ' + r.note : '')));
+      const cuando = r.hasta && r.hasta !== r.d
+        ? uF('%b %-d')(pd(r.d)) + ' – ' + uF('%a %b %-d, %Y')(pd(r.hasta))
+        : uF('%a %b %-d, %Y')(pd(r.d));
+      rr.appendChild(el('div', 'when', cuando + (r.note ? ' · ' + r.note : '')));
       const bar = el('div', 'bar'); const fill = el('i'); fill.style.width = (prog * 100).toFixed(0) + '%'; bar.appendChild(fill); rr.appendChild(bar);
+      if (r.sabe) {
+        const sabe = el('div', 'cap'); sabe.style.cssText = 'margin-top:8px;font-size:12px;line-height:1.4';
+        sabe.textContent = r.sabe;
+        rr.appendChild(sabe);
+      }
+      if (r.propia && r.id) {
+        const quitar = el('button', 'meta-quitar'); quitar.type = 'button';
+        quitar.textContent = L('Remove', 'Quitar');
+        quitar.addEventListener('click', async () => {
+          quitar.disabled = true;
+          try { await window.rrAccount.borrarMeta(r.id); if (dash.refresh) dash.refresh(); }
+          catch (e) { quitar.disabled = false; quitar.textContent = L('Could not remove', 'No se pudo quitar'); }
+        });
+        rr.appendChild(quitar);
+      }
       race.appendChild(rr); card.appendChild(race);
+    });
+  }
+
+  // El formulario de una meta. Pide lo minimo y deja que el entrenador complete lo que
+  // reconozca del evento, con el aviso de que puede no conocerlo.
+  function abrirMeta() {
+    if ($('meta-sheet')) return;
+    const hoy = todayIsoLocal();
+    const sh = el('div', 'meta-sheet'); sh.id = 'meta-sheet';
+    sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true');
+    const panel = el('div', 'meta-panel');
+    const top = el('div', 'meta-top');
+    top.appendChild(el('h2', null, L('New goal', 'Nueva meta')));
+    const cerrar = el('button', 'meta-x'); cerrar.type = 'button'; cerrar.textContent = L('Close', 'Cerrar');
+    top.appendChild(cerrar); panel.appendChild(top);
+
+    const campo = (etiqueta, id, tipo, ph) => {
+      const w = el('label', 'meta-f');
+      w.appendChild(el('span', null, etiqueta));
+      const i = document.createElement('input');
+      i.id = id; i.type = tipo || 'text'; i.autocomplete = 'off';
+      if (ph) i.placeholder = ph;
+      if (tipo === 'number') i.inputMode = 'numeric';
+      w.appendChild(i); return w;
+    };
+    panel.appendChild(campo(L('What is it?', '¿Qué es?'), 'meta-n', 'text', L('Haute Route Alps, Vuelta a Chiriquí…', 'Haute Route Alps, Vuelta a Chiriquí…')));
+    const fechas = el('div', 'meta-dos');
+    fechas.appendChild(campo(L('Start date', 'Fecha de inicio'), 'meta-d1', 'date'));
+    fechas.appendChild(campo(L('End date (if several days)', 'Fecha de fin (si dura varios días)'), 'meta-d2', 'date'));
+    panel.appendChild(fechas);
+    const nums = el('div', 'meta-dos');
+    nums.appendChild(campo(L('Distance (km, optional)', 'Distancia (km, opcional)'), 'meta-km', 'number'));
+    nums.appendChild(campo(L('Climbing (m, optional)', 'Desnivel (m, opcional)'), 'meta-m', 'number'));
+    panel.appendChild(nums);
+    const prio = el('label', 'meta-f');
+    prio.appendChild(el('span', null, L('How important is it?', '¿Qué tan importante es?')));
+    const sel = document.createElement('select'); sel.id = 'meta-p';
+    [['A', L('A: the one that matters most', 'A: la que más importa')],
+     ['B', L('B: important, not everything', 'B: importante, no todo')],
+     ['C', L('C: along the way', 'C: de paso')]].forEach(([v, txt2]) => {
+      const o = document.createElement('option'); o.value = v; o.textContent = txt2; sel.appendChild(o);
+    });
+    prio.appendChild(sel); panel.appendChild(prio);
+    const notas = el('label', 'meta-f');
+    notas.appendChild(el('span', null, L('Anything else worth knowing', 'Algo más que valga la pena saber')));
+    const ta = document.createElement('textarea'); ta.id = 'meta-notas'; ta.rows = 2;
+    ta.placeholder = L('Terrain, altitude, how you want to get there…', 'Terreno, altura, cómo querés llegar…');
+    notas.appendChild(ta); panel.appendChild(notas);
+
+    const st = el('div', 'meta-st'); st.id = 'meta-st'; panel.appendChild(st);
+    const fila = el('div', 'meta-botones');
+    const buscar = el('button', 'meta-btn ghost'); buscar.type = 'button';
+    buscar.textContent = L('Ask the coach about it', 'Preguntarle al entrenador');
+    const guardar = el('button', 'meta-btn'); guardar.type = 'button'; guardar.textContent = L('Save goal', 'Guardar meta');
+    fila.appendChild(buscar); fila.appendChild(guardar); panel.appendChild(fila);
+    sh.appendChild(panel);
+    (document.querySelector('#dash-root .jx') || document.body).appendChild(sh);
+
+    const quitar = () => { const x = $('meta-sheet'); if (x) x.remove(); };
+    cerrar.addEventListener('click', quitar);
+    sh.addEventListener('click', (e) => { if (e.target === sh) quitar(); });
+    setTimeout(() => { const n = $('meta-n'); if (n) n.focus(); }, 60);
+
+    const leer = () => {
+      const n = ($('meta-n').value || '').trim();
+      const d1 = $('meta-d1').value;
+      const d2 = $('meta-d2').value;
+      const km = parseFloat($('meta-km').value);
+      const mm = parseFloat($('meta-m').value);
+      return {
+        name: n, goal_date: d1, end_date: d2 && d2 >= d1 ? d2 : null,
+        priority: $('meta-p').value,
+        distance_km: isFinite(km) && km > 0 && km < 2000 ? km : null,
+        climb_m: isFinite(mm) && mm > 0 && mm < 30000 ? Math.round(mm) : null,
+        notes: ($('meta-notas').value || '').trim() || null,
+      };
+    };
+    const valida = (m) => {
+      if (!m.name) return L('Give it a name.', 'Ponle un nombre.');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(m.goal_date || '')) return L('Pick a date.', 'Elige una fecha.');
+      if (m.goal_date < hoy) return L('That date already passed.', 'Esa fecha ya pasó.');
+      return null;
+    };
+
+    // Lo que el entrenador reconozca del evento. Puede no conocerlo, y entonces lo dice.
+    let sabe = null;
+    buscar.addEventListener('click', async () => {
+      const m = leer(); const mal = valida(m);
+      if (mal) { st.textContent = mal; return; }
+      buscar.disabled = true; st.textContent = L('Asking the coach…', 'Preguntándole al entrenador…');
+      try {
+        sabe = await window.rrAccount.investigarMeta(m);
+        st.textContent = sabe || L('No answer.', 'Sin respuesta.');
+      } catch (e) {
+        st.textContent = (e && e.message) || L('Could not ask right now.', 'No se pudo preguntar ahora.');
+      }
+      buscar.disabled = false;
+    });
+
+    guardar.addEventListener('click', async () => {
+      const m = leer(); const mal = valida(m);
+      if (mal) { st.textContent = mal; return; }
+      guardar.disabled = true; st.textContent = L('Saving…', 'Guardando…');
+      try {
+        if (sabe) m.notes = [m.notes, sabe].filter(Boolean).join(' ').slice(0, 600);
+        await window.rrAccount.guardarMeta(m);
+        quitar();
+        // Con una meta nueva, el bloque de la semana deberia rehacerse apuntando ahi.
+        try { localStorage.removeItem('rr_plan_pedido'); } catch (e) {}
+        if (dash.refresh) dash.refresh();
+        safe(() => pedirBloqueSiToca());
+      } catch (e) {
+        st.textContent = (e && e.message) || L('Could not save.', 'No se pudo guardar.');
+        guardar.disabled = false;
+      }
     });
   }
 
@@ -2261,7 +2435,11 @@
     const { st, fat, sp, mtb, size } = P; const F = '#8A95A3', FD = '#6B7683', FL = '#D9DEE6', PK = '#F4A6B8', INK = '#1d1d1f';
     if (st === 'dead') return petDeadSvg();
     const jer = { bike: '#0A84FF', run: '#FF375F', swim: null, gym: '#30D158', walk: '#FF9F0A' }[sp];
-    const lazy = st === 'lazy', ex = st === 'exhausted', tired = st === 'tired', strong = st === 'strong', ready = st === 'ready';
+    const lazy = st === 'lazy', ex = st === 'exhausted', tired = st === 'tired';
+    // Si ya entreno hoy no puede verse igual que antes de entrenar: ni saludando con
+    // ganas ni sacando musculo. Se queda tranquilo, con su medalla y su toalla.
+    const hecho = !!P.trainedToday && (st === 'strong' || st === 'ready');
+    const strong = st === 'strong' && !hecho, ready = st === 'ready' && !hecho;
     const bw = 42 + fat * 7, bh = 40 + fat * 2.5, by = 148 - fat; let s = '';
     s += `<ellipse cx="${lazy ? 70 : 90}" cy="191" rx="${lazy ? 140 : 120}" ry="7" fill="rgba(0,0,0,.25)"/>`;
     // left-side prop: the sport, or a TV when lazy
@@ -2298,6 +2476,15 @@
     } else if (lazy) {
       s += `<g><circle cx="${70 - fat * 4}" cy="150" r="12" fill="none" stroke="#E0A86A" stroke-width="8"/><circle cx="${70 - fat * 4}" cy="150" r="11" fill="none" stroke="#FF7AB0" stroke-width="5" stroke-dasharray="40 30"/><path d="M${64 - fat * 4} 141 l3 1 M${76 - fat * 4} 143 l2 3 M${66 - fat * 4} 158 l3 -1" stroke="#fff" stroke-width="2"/><ellipse cx="${80 - fat * 4}" cy="156" rx="8" ry="7" fill="${FL}"/></g>`;
       s += `<g><rect x="${144 + fat * 4}" y="136" width="11" height="26" rx="3" fill="#2c2c2e"/><circle cx="${149.5 + fat * 4}" cy="142" r="2.4" fill="#FF453A"/><ellipse cx="${146 + fat * 4}" cy="156" rx="8" ry="7" fill="${FL}"/></g>`;
+    } else if (hecho) {
+      // Brazos caidos y relajados, uno descansando sobre la panza.
+      s += `<path d="M78 130 Q62 146 68 164" fill="none" stroke="${F}" stroke-width="12" stroke-linecap="round"/><circle cx="68" cy="166" r="8" fill="${F}"/>`;
+      s += `<path d="M142 130 Q156 142 138 156" fill="none" stroke="${F}" stroke-width="12" stroke-linecap="round"/><circle cx="136" cy="157" r="8" fill="${F}"/>`;
+      // Toalla al cuello y medalla: la sesion ya esta hecha.
+      s += `<path d="M86 112 q-10 26 -4 44 l16 -3 q-6 -20 2 -40 z" fill="#64D2FF" opacity=".9" stroke="${INK}" stroke-width="2"/>`;
+      s += `<path d="M134 112 q10 26 4 44 l-16 -3 q6 -20 -2 -40 z" fill="#64D2FF" opacity=".9" stroke="${INK}" stroke-width="2"/>`;
+      s += `<path d="M98 116 L110 150 L122 116" fill="none" stroke="#FFD60A" stroke-width="3"/>`;
+      s += `<circle cx="110" cy="158" r="11" fill="#FFD60A" stroke="${INK}" stroke-width="2.5"/><text x="110" y="163" text-anchor="middle" font-size="12" font-weight="800" fill="${INK}" font-family="-apple-system,system-ui,sans-serif">\u2713</text>`;
     } else {
       const dy = ex ? 10 : 4; s += `<ellipse cx="${72 - fat}" cy="${158 + dy}" rx="8" ry="14" fill="${F}"/><ellipse cx="${148 + fat}" cy="${158 + dy}" rx="8" ry="14" fill="${F}"/><ellipse cx="${72 - fat}" cy="${170 + dy}" rx="7" ry="5" fill="${FL}"/><ellipse cx="${148 + fat}" cy="${170 + dy}" rx="7" ry="5" fill="${FL}"/>`;
     }
@@ -2307,9 +2494,10 @@
     s += `<path d="M74 66 L70 26 L102 46 Z" fill="${F}" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/><path d="M78 60 L75 36 L96 49 Z" fill="${PK}"/><path d="M146 66 L150 26 L118 46 Z" fill="${F}" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/><path d="M142 60 L145 36 L124 49 Z" fill="${PK}"/>`;
     s += `<ellipse cx="110" cy="80" rx="${42 + fat * 2.5}" ry="${38 + fat}" fill="${F}" stroke="${INK}" stroke-width="3.5"/><path d="M104 47 l2 10 M110 45 v12 M116 47 l-2 10" stroke="${FD}" stroke-width="3" stroke-linecap="round"/>`;
     s += `<ellipse cx="110" cy="101" rx="${17 + fat}" ry="${11 + fat * .5}" fill="${FL}"/>`;
-    if (!ex) s += `<circle cx="${84 - fat}" cy="98" r="6" fill="${PK}" opacity="${strong || ready ? .6 : .35}"/><circle cx="${136 + fat}" cy="98" r="6" fill="${PK}" opacity="${strong || ready ? .6 : .35}"/>`;
+    if (!ex) s += `<circle cx="${84 - fat}" cy="98" r="6" fill="${PK}" opacity="${strong || ready || hecho ? .6 : .35}"/><circle cx="${136 + fat}" cy="98" r="6" fill="${PK}" opacity="${strong || ready ? .6 : .35}"/>`;
     [93, 127].forEach((x) => {
-      if (strong) s += `<path d="M${x - 8} 84 Q${x} 72 ${x + 8} 84" fill="none" stroke="${INK}" stroke-width="3.5" stroke-linecap="round"/>`;
+      if (hecho) s += `<path d="M${x - 9} 83 Q${x} 71 ${x + 9} 83" fill="none" stroke="${INK}" stroke-width="3.5" stroke-linecap="round"/>`;
+      else if (strong) s += `<path d="M${x - 8} 84 Q${x} 72 ${x + 8} 84" fill="none" stroke="${INK}" stroke-width="3.5" stroke-linecap="round"/>`;
       else if (ex) s += `<path d="M${x - 8} 80 Q${x} 87 ${x + 8} 80" fill="none" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>`;
       else {
         s += `<g class="${ready ? 'pet-blink' : ''}"><ellipse cx="${x}" cy="80" rx="9.5" ry="11.5" fill="#E9D35B"/><ellipse cx="${x}" cy="81" rx="3.4" ry="9" fill="${INK}"/><circle cx="${x + 3}" cy="75" r="3" fill="#fff"/><circle cx="${x - 2.5}" cy="84" r="1.4" fill="#fff" opacity=".85"/></g>`;
@@ -2442,10 +2630,13 @@
     host.innerHTML = petSvg(P);
     const V = { bike: ['ride', 'rodar'], run: ['run', 'correr'], swim: ['swim', 'nadar'], gym: ['train', 'entrenar'], walk: ['hike', 'caminar'] }[P.sp];
     const G = { bike: ['jersey', 'camiseta de ciclismo'], run: ['running top', 'camiseta de correr'], swim: ['swimsuit', 'vestido de baño'], gym: ['tank top', 'camiseta del gimnasio'], walk: ['shirt', 'camisa'] }[P.sp];
-    const names = { strong: ['Strong', 'Fuerte'], ready: ['Ready', 'Listo'], tired: ['Tired', 'Cansado'], exhausted: ['Exhausted', 'Agotado'], lazy: ['Getting chubby', 'Engordando'], dead: ['At rest', 'En paz'] }[P.st];
+    const yaHizo = !!P.trainedToday && (P.st === 'strong' || P.st === 'ready');
+    const names = yaHizo
+      ? ['Done for today', 'Ya cumplió']
+      : { strong: ['Strong', 'Fuerte'], ready: ['Ready', 'Listo'], tired: ['Tired', 'Cansado'], exhausted: ['Exhausted', 'Agotado'], lazy: ['Getting chubby', 'Engordando'], dead: ['At rest', 'En paz'] }[P.st];
     const zz = firstOf('zones') || {}; const petName = zz.pet_name || { bike: 'Pedal', run: 'Trote', swim: 'Burbuja', gym: 'Pesas', walk: 'Sendero' }[P.sp];
     txt('pet-name', P.st === 'dead' ? petName : (P.gen > 1 ? `${petName} ${P.gen}` : petName));
-    const badge = $('pet-badge'); badge.className = 'pet-badge s-' + P.st; badge.textContent = L(names[0], names[1]);
+    const badge = $('pet-badge'); badge.className = 'pet-badge s-' + (yaHizo ? 'hecho' : P.st); badge.textContent = L(names[0], names[1]);
     const f = (P.form > 0 ? '+' : '') + fmt1(P.form);
     let say;
     if (P.st === 'dead') say = L(`A full week without any training you really needed was too much for ${petName}. Time to adopt a new kitten.`, `Una semana entera sin el entrenamiento que de verdad hacía falta fue demasiado para ${petName}. Hora de adoptar un gatito nuevo.`);

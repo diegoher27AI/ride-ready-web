@@ -204,7 +204,9 @@
       note: x.note, steps: x.steps || [], source: x.source,
     }));
     raw.goals = (go && go.data ? go.data : []).map((x) => ({
-      name: x.name, date: x.goal_date, priority: x.priority, notes: x.notes,
+      id: x.id, name: x.name, date: x.goal_date, end_date: x.end_date || null,
+      priority: x.priority, notes: x.notes,
+      distance_km: x.distance_km, climb_m: x.climb_m, sabe_ia: x.sabe_ia || null,
     }));
     if (a.data && a.data.length) {
       raw.activities = a.data.map((x) => ({ date: x.date, name: x.name, sport: x.sport, moving_min: x.moving_min, distance_km: x.distance_km, relative_effort: x.relative_effort, calories: x.calories, avg_hr: x.avg_hr, max_hr: x.max_hr, avg_watts: x.avg_watts, p5_w: x.p5_w, p20_w: x.p20_w, weight_kg: x.weight_kg, source: 'intervals.icu' }));
