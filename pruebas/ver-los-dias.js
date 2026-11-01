@@ -36,8 +36,23 @@ function run(PLAN, REC, lang = 'es') {
   });
   data.pmc = pmc;
   data.plan = PLAN;
+  // Zonas como las de un ciclista de verdad. Con una sola zona (como estaba antes esta
+  // prueba) todos los pasos caen en la misma y el pulso sale plano por fuerza.
   data.zones = [{ weight_kg: 80, ftp_w: 250, ftp_wkg: 3.13, hr_max: 196, device: 'intervals.icu',
-    power_zones: [{ label: 'Z2 Endurance', min: 138, max: 187 }], heart_rate_zones: [{ label: 'Z2 Endurance', min: 128, max: 158 }] }];
+    power_zones: [
+      { label: 'Z1 Recovery', min: 0, max: 137 },
+      { label: 'Z2 Endurance', min: 138, max: 187 },
+      { label: 'Z3 Tempo', min: 188, max: 225 },
+      { label: 'Z4 Threshold', min: 226, max: 262 },
+      { label: 'Z5 VO2', min: 263, max: null },
+    ],
+    heart_rate_zones: [
+      { label: 'Z1 Recovery', min: 0, max: 127 },
+      { label: 'Z2 Endurance', min: 128, max: 150 },
+      { label: 'Z3 Tempo', min: 151, max: 165 },
+      { label: 'Z4 Threshold', min: 166, max: 178 },
+      { label: 'Z5 VO2', min: 179, max: null },
+    ] }];
 
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const dom = new JSDOM(html, { runScripts: 'outside-only', virtualConsole: vc, pretendToBeVisual: true, url: 'https://example.test/' });
@@ -60,8 +75,21 @@ function run(PLAN, REC, lang = 'es') {
   const doc = window.document;
   const q = (id) => { const e = doc.getElementById(id); return e ? (e.textContent || '').trim().replace(/\s+/g, ' ') : ''; };
   const botones = () => [...doc.querySelectorAll('#sess-days button')].map((b) => b.textContent.trim());
+  // Los recuadros de "Esta semana" de arriba.
+  const semana = () => [...doc.querySelectorAll('#week .day')].map((d) => ({
+    txt: (d.textContent || '').replace(/\s+/g, ' ').trim(),
+    tocable: d.classList.contains('tap'),
+    viendo: d.classList.contains('viendo'),
+    el: d,
+  }));
+  const tocarSemana = (i) => { const d = semana()[i]; if (!d) return false; d.el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); return true; };
+  const modo = (cual) => {
+    const b = [...doc.querySelectorAll('#mode button')].find((x) => (x.dataset.mode || '') === cual);
+    if (b) b.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  };
+  const alturas = () => [...doc.querySelectorAll('#wk-chart rect')].map((r) => Math.round(+r.getAttribute('height')));
   const tocar = (i) => { const b = [...doc.querySelectorAll('#sess-days button')][i]; if (!b) return false; b.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); return true; };
-  return { q, botones, tocar, doc };
+  return { q, botones, tocar, semana, tocarSemana, modo, alturas, doc };
 }
 
 let pass = 0, fail = 0;
@@ -120,6 +148,62 @@ ok('pero si la sesion de hoy', /suave/i.test(r.q('wk-title')), r.q('wk-title'));
 console.log('\nEn ingles:');
 r = run(PLAN, 54, 'en');
 ok('el primer boton dice Today', /Today/.test(r.botones()[0]), r.botones()[0]);
+
+console.log('\nLos dias de "Esta semana" se pueden tocar:');
+r = run(PLAN, 54);
+{
+  const dias = r.semana();
+  console.log('   ', dias.map((d) => d.txt.slice(0, 14) + (d.tocable ? ' [tocable]' : '')).join(' | '));
+  ok('hay 7 recuadros', dias.length === 7, dias.length);
+  ok('hoy se puede tocar', dias[3].tocable, dias[3].txt);
+  ok('los dias planificados se pueden tocar', dias[4].tocable && dias[5].tocable && dias[6].tocable);
+  ok('los dias pasados NO se tocan', !dias[0].tocable && !dias[1].tocable && !dias[2].tocable);
+  ok('hoy arranca marcado como el que se ve', dias[3].viendo, dias.map((d) => d.viendo).join(','));
+}
+
+console.log('\nTocar el dia de manana desde "Esta semana":');
+{
+  r.tocarSemana(4);
+  ok('la tarjeta de abajo cambia a ese dia', /umbral/i.test(r.q('wk-title')), r.q('wk-title'));
+  ok('el recuadro de arriba queda marcado', r.semana()[4].viendo, r.semana().map((d) => d.viendo).join(','));
+  ok('y hoy ya no', !r.semana()[3].viendo);
+  ok('los botones de abajo siguen en el mismo dia', /umbral/i.test(r.q('wk-title')));
+}
+
+console.log('\nTocar el fondo largo, y volver a hoy:');
+{
+  r.tocarSemana(6);
+  ok('muestra el fondo', /fondo/i.test(r.q('wk-title')), r.q('wk-title'));
+  r.tocarSemana(3);
+  ok('vuelve a hoy', /suave/i.test(r.q('wk-title')), r.q('wk-title'));
+  ok('y hoy queda marcado', r.semana()[3].viendo);
+}
+
+console.log('\nEl pulso sale de tus zonas, no de un 175 fijo:');
+{
+  r = run(PLAN, 54);
+  r.tocarSemana(4);          // el dia de series, que tiene 3 pasos distintos
+  r.modo('power');
+  const pot = r.alturas();
+  r.modo('hr');
+  const pul = r.alturas();
+  console.log('   alturas en potencia:', pot.join(','), '| en pulso:', pul.join(','));
+  ok('en potencia se ven barras distintas', new Set(pot).size > 1, pot.join(','));
+  ok('en pulso TAMBIEN se ven distintas', new Set(pul).size > 1, pul.join(','));
+  ok('el bloque fuerte es el mas alto en pulso', pul[1] === Math.max(...pul), pul.join(','));
+  const pasos = r.q('wk-steps');
+  ok('los pasos muestran lpm, no "RPE 8"', /lpm|bpm/.test(pasos), pasos.slice(0, 100));
+  ok('y no todos el mismo numero', new Set((pasos.match(/\d+–\d+/g) || [])).size > 1, pasos.slice(0, 120));
+}
+
+console.log('\nSin zonas de pulso no se inventa un numero:');
+{
+  const sinZonas = run(PLAN, 54);
+  sinZonas.doc.defaultView.eval("window.__view.zones = [{ weight_kg: 80, ftp_w: 250, ftp_wkg: 3.13, power_zones: '[]', heart_rate_zones: '[]' }]; window.__cb && window.__cb();");
+  sinZonas.tocarSemana(4);
+  sinZonas.modo('hr');
+  ok('dice que vaya por sensacion', /RPE/.test(sinZonas.q('wk-steps')), sinZonas.q('wk-steps').slice(0, 90));
+}
 
 console.log('\nErrores de la app:', errors.length ? errors : 'ninguno');
 if (errors.length) fail++;

@@ -128,6 +128,10 @@
 .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .day { text-align: center; padding: 8px 2px 10px; border-radius: 16px; background: rgba(255,255,255,.04); border: 1px solid transparent; min-width: 0; }
 .day.today { background: rgba(10,132,255,.22); border-color: rgba(10,132,255,.55); }
+.day.tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.day.tap:active { transform: scale(.96); }
+.day.viendo { border-color: rgba(255,159,10,.85); box-shadow: 0 0 0 1px rgba(255,159,10,.45); }
+.day.tap:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .day .dw { font-size: 11px; font-weight: 600; color: var(--ink3); text-transform: uppercase; }
 .day .dn { font-size: 17px; font-weight: 700; margin: 2px 0 6px; }
 .day .dot { width: 28px; height: 28px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center; }
@@ -1056,7 +1060,21 @@
         }
       }
       const dot = el('div', 'dot ' + cls); dot.appendChild(icon(ic)); cell.appendChild(dot);
-      cell.appendChild(el('div', 'dl', label)); host.appendChild(cell);
+      cell.appendChild(el('div', 'dl', label));
+      // Tocar un dia abre su entrenamiento abajo. Antes estos recuadros eran solo adorno
+      // y no se podia entrar a ver el plan de cada dia.
+      const abrible = i === 0 || (i > 0 && !!planFor(ds));
+      if (abrible) {
+        cell.classList.add('tap');
+        cell.setAttribute('role', 'button');
+        cell.setAttribute('tabindex', '0');
+        cell.setAttribute('aria-label', wdFmt(d) + ' ' + d.getUTCDate());
+        const abrir = () => { verDia(ds); };
+        cell.addEventListener('click', abrir);
+        cell.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrir(); } });
+      }
+      if (ds === diaVisto()) cell.classList.add('viendo');
+      host.appendChild(cell);
     }
   }
 
@@ -1170,6 +1188,26 @@
     const r = rows.find((x) => x.date === iso);
     if (!r) return null;
     return { ...r, steps: arr(obj(r.steps)) };
+  }
+
+  // Que dia se esta viendo en la tarjeta del entrenamiento. Lo comparten el recuadro de
+  // "Esta semana" de arriba y los botones de dia de la tarjeta, para que digan lo mismo.
+  function diaVisto() {
+    const hoy = todayIsoLocal();
+    const f = sessionsAhead();
+    if (!sessIdx || sessIdx < 1) return hoy;
+    const i = sessIdx - 1;
+    return f[i] ? f[i].date : hoy;
+  }
+  function verDia(ds) {
+    const hoy = todayIsoLocal();
+    if (ds <= hoy) { sessIdx = 0; render(); return; }
+    const f = sessionsAhead();
+    const i = f.findIndex((x) => x.date === ds);
+    sessIdx = i >= 0 ? i + 1 : 0;
+    render();
+    const card = $('card-workout');
+    if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // Los dias que el entrenador ya dejo armados hacia adelante. Antes el plan se guardaba
@@ -1314,6 +1352,27 @@
     ]);
   }
 
+  // El pulso de un paso. Si el entrenamiento no lo trae (pasa casi siempre: el plan viene
+  // en vatios), se saca de TUS zonas: se mira en que zona de potencia cae el paso y se
+  // usa la zona de pulso del mismo numero. Antes todos los pasos se dibujaban a 175 lpm
+  // fijos, asi que en modo Pulso la grafica salia plana y no decia nada.
+  function hrDelPaso(st) {
+    if (st.hr && st.hr.length === 2 && +st.hr[1] > 0) return st.hr;
+    const z = firstOf('zones'); if (!z) return null;
+    const pz = arr(obj(z.power_zones)), hz = arr(obj(z.heart_rate_zones));
+    if (!pz.length || !hz.length) return null;
+    const w = st.p && st.p.length === 2 ? (+st.p[0] + +st.p[1]) / 2 : 0;
+    if (!(w > 0)) return null;
+    let i = pz.findIndex((b) => b.max == null || w <= +b.max);
+    if (i < 0) i = pz.length - 1;
+    // Si hay mas zonas de potencia que de pulso (o al reves), se reparte en proporcion.
+    const j = hz.length === pz.length ? i : Math.min(hz.length - 1, Math.round((i / Math.max(1, pz.length - 1)) * (hz.length - 1)));
+    const b = hz[j]; if (!b) return null;
+    const lo = +b.min || 0;
+    const hi = b.max != null ? +b.max : Math.round(lo * 1.08);
+    return hi > 0 ? [lo, hi] : null;
+  }
+
   function renderWorkout() {
     safe(renderAskMe);
     const ftp = (firstOf('zones') || {}).ftp_w ? +firstOf('zones').ftp_w : 264;
@@ -1408,7 +1467,11 @@
     const m = { t: 6, r: 2, b: 22, l: 2 };
     let t0 = 0; const blocks = steps.map((st) => { const o = { ...st, s: t0, e: t0 + st.min }; t0 += st.min; return o; });
     const x = d3.scaleLinear([0, t0], [m.l, w - m.r]);
-    const val = (st) => (mode === 'power' ? st.p[1] : (st.hr ? st.hr[1] : 175));
+    const val = (st) => {
+      if (mode === 'power') return st.p[1];
+      const h2 = hrDelPaso(st);
+      return h2 ? h2[1] : 120;        // sin zonas no hay nada que derivar
+    };
     const lo = mode === 'power' ? 0 : 90;
     const y = d3.scaleLinear([lo, d3.max(blocks, val) * 1.05], [h - m.b, m.t]);
     const defs = svg.append('defs');
@@ -1417,8 +1480,8 @@
       const g = defs.append('linearGradient').attr('id', id).attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
       g.append('stop').attr('offset', 0).attr('stop-color', c).attr('stop-opacity', .95); g.append('stop').attr('offset', 1).attr('stop-color', c).attr('stop-opacity', .35);
       svg.append('rect').attr('x', x(b.s) + 1).attr('width', Math.max(2, x(b.e) - x(b.s) - 2)).attr('y', y(val(b))).attr('height', y(lo) - y(val(b))).attr('rx', 5)
-        .attr('fill', `url(#${id})`).attr('opacity', mode === 'hr' && !b.hr ? .45 : 1)
-        .on('pointerenter', () => tipAt(tip, box, x((b.s + b.e) / 2), [{ t: b.name }, { t: b.min + ' min · ' + (mode === 'power' ? b.p[0] + '–' + b.p[1] + ' W' : b.hr ? b.hr[0] + '–' + b.hr[1] + ' bpm' : 'by feel, RPE 8') }]))
+        .attr('fill', `url(#${id})`).attr('opacity', mode === 'hr' && !hrDelPaso(b) ? .45 : 1)
+        .on('pointerenter', () => { const hb = hrDelPaso(b); tipAt(tip, box, x((b.s + b.e) / 2), [{ t: b.name }, { t: b.min + ' min · ' + (mode === 'power' ? b.p[0] + '–' + b.p[1] + ' W' : hb ? hb[0] + '–' + hb[1] + ' bpm' : 'by feel, RPE 8') }]); })
         .on('pointerleave', () => hideTip(tip));
     });
     [0, Math.round(t0 / 2), t0].forEach((t, i) => svg.append('text').attr('class', 'tk').attr('x', x(t)).attr('y', h - 3).attr('text-anchor', i === 0 ? 'start' : i === 2 ? 'end' : 'middle').text(t + "'"));
@@ -1429,10 +1492,11 @@
     const band = (r, unit) => (!r ? null : (+r[0] <= 0 ? L('under ', 'bajo ') + r[1] + unit : r[0] + '–' + r[1] + unit));
     steps.forEach((st) => {
       const li = el('li'); const bar = el('i'); bar.style.background = colorOf(st); li.appendChild(bar);
-      const pTxt = band(st.p, ' W'), hTxt = band(st.hr, '');
+      const hRango = hrDelPaso(st);
+      const pTxt = band(st.p, ' W'), hTxt = band(hRango, '');
       const mid = el('div'); mid.appendChild(el('div', 'sn', st.name));
       mid.appendChild(el('div', 'sd', st.min + ' min · ' + (mode === 'power' ? (hTxt ? L('HR ', 'pulso ') + hTxt : L('HR lags, ride by feel', 'el pulso tarda, ve por sensación')) : (pTxt || '')))); li.appendChild(mid);
-      li.appendChild(el('div', 'st num', mode === 'power' ? (pTxt || '') : (hTxt ? band(st.hr, ' bpm') : 'RPE 8')));
+      li.appendChild(el('div', 'st num', mode === 'power' ? (pTxt || '') : (hRango ? band(hRango, ' bpm') : 'RPE 8')));
       ul.appendChild(li);
     });
     const b64 = mode === 'power' ? s.fit_power_b64 : s.fit_hr_b64; const name = mode === 'power' ? s.fit_power_name : s.fit_hr_name;
