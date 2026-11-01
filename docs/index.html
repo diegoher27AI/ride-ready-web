@@ -895,16 +895,26 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
 
   function renderSleep() {
     const all = whoopRows(); if (!all) return; const rows = all.filter((d) => d.asleep_h != null).slice(-30);
-    const l7 = rows.slice(-7); const avg = d3.mean(l7, (d) => d.asleep_h); const need = d3.mean(l7, (d) => d.need_h);
-    txt('sl-v', fmt1(avg)); txt('sl-d', '−' + fmt1(need - avg) + ' h vs need');
+    const l7 = rows.slice(-7); const avg = d3.mean(l7, (d) => d.asleep_h);
+    // "Lo que necesitas" solo existe si importaste el archivo de Whoop: el conector de
+    // intervals.icu no lo entrega. Antes salia "necesitas ≈— h", un guion sin numero.
+    // Sin ese dato se compara contra 8 h y se dice que son 8 h, no "lo que necesitas".
+    const needReal = d3.mean(l7.filter((d) => d.need_h != null), (d) => d.need_h);
+    const need = isFinite(needReal) ? needReal : 8;
+    const falta = need - avg;
+    txt('sl-v', fmt1(avg));
+    txt('sl-d', falta > 0.05
+      ? '−' + fmt1(falta) + (isFinite(needReal) ? L(' h vs need', ' h vs lo que necesitas') : L(' h vs 8 h', ' h vs 8 h'))
+      : (isFinite(needReal) ? L('meeting your need', 'cubres lo que necesitas') : L('8 h or more', '8 h o más')));
     const box = $('c-sleep'); const { w, h, svg, tip } = frame(box, 170); const m = { t: 10, r: 22, b: 22, l: 4 };
     const x = d3.scaleBand(rows.map((d) => d.date), [m.l, w - m.r]).padding(.25);
     const y = d3.scaleLinear([0, Math.max(11, d3.max(rows, (d) => d.need_h || 0))], [h - m.b, m.t]);
+    const refLinea = rows.map((d) => ({ ...d, ref: d.need_h != null ? d.need_h : 8 }));
     yAxis(svg, y, m.l, w, 3, (v) => v + 'h');
     svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', (d) => x(d.date)).attr('width', x.bandwidth()).attr('y', (d) => y(d.asleep_h)).attr('height', (d) => h - m.b - y(d.asleep_h)).attr('rx', Math.min(3, x.bandwidth() / 2))
       .attr('fill', (d) => (d.asleep_h < 6 ? '#5E5CE6' : '#7D7AFF')).attr('opacity', (d) => (d.asleep_h < 6 ? .65 : 1))
-      .on('pointerenter', (ev, d) => tipAt(tip, box, x(d.date) + x.bandwidth() / 2, [{ t: dFmt(d.dt) }, { c: '#7D7AFF', t: 'Asleep ' + fmt1(d.asleep_h) + ' h' }, { t: 'Need ' + fmt1(d.need_h) + ' h · recovery ' + fmt0(d.recovery) + '%' }])).on('pointerleave', () => hideTip(tip));
-    svg.append('path').datum(rows.filter((d) => d.need_h)).attr('d', d3.line().x((d) => x(d.date) + x.bandwidth() / 2).y((d) => y(d.need_h)).curve(d3.curveMonotoneX)).attr('fill', 'none').attr('stroke', 'rgba(255,255,255,.6)').attr('stroke-width', 1.5).attr('stroke-dasharray', '3 3');
+      .on('pointerenter', (ev, d) => tipAt(tip, box, x(d.date) + x.bandwidth() / 2, [{ t: dFmt(d.dt) }, { c: '#7D7AFF', t: 'Asleep ' + fmt1(d.asleep_h) + ' h' }, { t: (d.need_h != null ? 'Need ' + fmt1(d.need_h) + ' h' : 'Reference 8 h') + ' · recovery ' + fmt0(d.recovery) + '%' }])).on('pointerleave', () => hideTip(tip));
+    svg.append('path').datum(refLinea).attr('d', d3.line().x((d) => x(d.date) + x.bandwidth() / 2).y((d) => y(d.ref)).curve(d3.curveMonotoneX)).attr('fill', 'none').attr('stroke', 'rgba(255,255,255,.6)').attr('stroke-width', 1.5).attr('stroke-dasharray', '3 3');
     [rows[0], rows[rows.length - 1]].forEach((d, i) => svg.append('text').attr('class', 'tk').attr('x', x(d.date) + (i ? x.bandwidth() : 0)).attr('y', h - 6).attr('text-anchor', i ? 'end' : 'start').text(dFmt(d.dt)));
   }
 
@@ -1008,7 +1018,16 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     }
     chip('Fitness', fmt0(last.fitness), Math.round(fitPct * 100) + '% of ' + uF('%b')(peak.dt) + ' peak', null);
     if (lastP) chip('Best 5 min', fmt2(+lastP.p5_wkg) + ' W/kg', lastP.p5_w + ' W · ' + dFmt(lastP.dt), null);
-    if (wr) { const l7 = wr.slice(-7); const sl = d3.mean(l7, (d) => d.asleep_h); chip('Sleep, last 7', fmt1(sl) + ' h', 'need \u2248' + fmt0(d3.mean(l7, (d) => d.need_h)) + ' h', sl < 6.5 ? 'bad' : sl < 7.5 ? 'warn' : 'ok'); }
+    if (wr) {
+      const l7 = wr.slice(-7).filter((d) => d.asleep_h != null);
+      const sl = d3.mean(l7, (d) => d.asleep_h);
+      if (isFinite(sl)) {
+        const nd = d3.mean(l7.filter((d) => d.need_h != null), (d) => d.need_h);
+        // Sin el dato propio de Whoop no se pone un guion vacio: se dice cuantas noches son.
+        const pie = isFinite(nd) ? 'need \u2248' + fmt0(nd) + ' h' : L(`over ${l7.length} nights`, `en ${l7.length} noches`);
+        chip('Sleep, last 7', fmt1(sl) + ' h', pie, sl < 6.5 ? 'bad' : sl < 7.5 ? 'warn' : 'ok');
+      }
+    }
   }
 
   function renderWeek() {
@@ -2286,6 +2305,7 @@ body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area
     'No plan yet. Ask your coach in the chat to build your next days.': 'Todavía no hay plan. Pídele a tu entrenador en el chat que arme tus próximos días.',
     'Your model is not built yet': 'Tu modelo todavía no existe',
     "This tab learns from your own data: how your body answers to training, and what your recovery will be tomorrow. It needs the morning calculation on the server, which is still being built. Nothing here would be yours yet, so it stays hidden instead of showing someone else's numbers.": 'Esta pestaña aprende de tus propios datos: cómo responde tu cuerpo al entrenamiento y cuál será tu recuperación mañana. Necesita el cálculo de cada mañana en el servidor, que todavía se está construyendo. Nada de aquí sería tuyo todavía, así que se esconde en vez de mostrarte números de otra persona.',
+    'Reference 8 h': 'Referencia 8 h',
     'Long ride 4 h': 'Rodada larga 4 h', 'Race / very hard': 'Carrera / muy duro', 'Share cancelled.': 'Cancelado.',
     'Sign in to bring in your own data.': 'Entra a tu cuenta para traer tus datos.',
     'Tap Refresh to bring in your history.': 'Toca Actualizar para traer tu historial.',

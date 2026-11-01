@@ -71,6 +71,28 @@
       out.activities = [...(raw.activities || []), ...loc.activities].sort((a, b) => (a.date < b.date ? -1 : 1));
       out.pmc = computePmc(out.activities);
     }
+    // Los mejores 20 min escritos a mano entran como si vinieran del potenciometro.
+    // Lo que trae intervals.icu manda: solo se completa lo que falta.
+    if (loc.potencias && Object.keys(loc.potencias).length && out.activities) {
+      out.activities = out.activities.map((a) => (
+        a.p20_w > 0 || loc.potencias[a.date] == null ? a : { ...a, p20_w: loc.potencias[a.date], a_mano: true }
+      ));
+    }
+    if (loc.perfil && Object.keys(loc.perfil).length) {
+      const base = (out.zones && out.zones[0]) || {};
+      const z = { ...base };
+      if (loc.perfil.weight_kg != null) z.weight_kg = loc.perfil.weight_kg;
+      if (loc.perfil.hr_max != null) z.hr_max = loc.perfil.hr_max;
+      if (loc.perfil.ftp_w != null) z.ftp_w = loc.perfil.ftp_w;
+      if (z.ftp_w && z.weight_kg) z.ftp_wkg = Math.round((z.ftp_w / z.weight_kg) * 100) / 100;
+      out.zones = [z];
+    }
+    // La potencia se rearma con lo que haya quedado, propio o escrito a mano.
+    if (out.activities && out.activities.length && window.rrModelo) {
+      const peso = (out.zones && out.zones[0] && out.zones[0].weight_kg) || null;
+      const pw = computePower(out.activities, peso);
+      if (pw.length) out.power = pw;
+    }
     if (out.whoop && out.whoop.length) {
       const fx = whoopFx(out.whoop, out.journal_flags, out.pmc || raw.pmc);
       if (fx.length) out.whoop_fx = fx;
@@ -272,6 +294,14 @@
     saveActivity(row) {
       const loc = readLocal();
       loc.activities = [...(loc.activities || []), row];
+      const ok = writeLocal(loc); rebuild(); fire(); return ok;
+    },
+    // Peso, pulso maximo, FTP y los mejores 20 min que el ciclista escribio a mano.
+    // Sin potenciometro esto es lo unico con lo que el modelo puede ajustarse a el.
+    savePerfil(perfil, potencias) {
+      const loc = readLocal();
+      loc.perfil = { ...(loc.perfil || {}), ...(perfil || {}) };
+      loc.potencias = { ...(loc.potencias || {}), ...(potencias || {}) };
       const ok = writeLocal(loc); rebuild(); fire(); return ok;
     },
     clear() { try { localStorage.removeItem(LOCAL); } catch (e) {} rebuild(); fire(); }

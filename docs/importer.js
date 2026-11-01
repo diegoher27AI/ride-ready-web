@@ -16,6 +16,14 @@
       d_h: 'Diario de hoy', d_p: 'Lo que ningún conector trae solo.',
       alc: 'Alcohol ayer', sug: 'Azúcar añadida ayer', late: 'Comida tarde anoche',
       d_btn: 'Guardar diario', d_ok: 'Guardado.',
+      pw_h: 'Tu potencia y tu perfil',
+      pw_p: 'El modelo necesita esto para aprender cómo responde tu cuerpo. Si tu bici no manda vatios, escribe aquí los que recuerdes.',
+      pw_peso: 'Peso (kg)', pw_hrmax: 'Pulso máximo (lpm)', pw_ftp: 'FTP si lo sabes (W)',
+      pw_dias: 'Elegimos tus salidas más fuertes de cada mes. Escribe tus mejores 20 minutos de cada una, en vatios. Las que no sepas, déjalas vacías.',
+      pw_falta: (n) => `Faltan ${n} ${n === 1 ? 'medición' : 'mediciones'} para que el modelo pueda ajustarse a ti. Mientras tanto usa los valores de libro.`,
+      pw_listo: 'Ya hay suficiente para ajustar el modelo a ti.',
+      pw_sin: 'Todavía no hay salidas con suficiente duración para medir 20 minutos.',
+      pw_btn: 'Guardar', pw_ok: 'Guardado.',
       f_h: 'Archivos FIT de actividades', f_p: 'Muy pronto: subir actividades del Garmin o del Hammerhead cuando no se sincronicen solas.',
       local: 'Todo se guarda solo en este teléfono.', clear: 'Borrar lo cargado', cleared: 'Se borró lo cargado en este teléfono.',
       store_full: 'No hay espacio para guardar en este teléfono.'
@@ -33,6 +41,14 @@
       d_h: "Today's diary", d_p: "What no connector brings on its own.",
       alc: 'Alcohol yesterday', sug: 'Added sugar yesterday', late: 'Late meal last night',
       d_btn: 'Save diary', d_ok: 'Saved.',
+      pw_h: 'Your power and profile',
+      pw_p: 'The model needs this to learn how your body responds. If your bike does not send watts, type the ones you remember here.',
+      pw_peso: 'Weight (kg)', pw_hrmax: 'Max heart rate (bpm)', pw_ftp: 'FTP if you know it (W)',
+      pw_dias: 'We picked your hardest ride of each month. Type your best 20 minutes for each, in watts. Leave blank the ones you do not know.',
+      pw_falta: (n) => `${n} more ${n === 1 ? 'reading' : 'readings'} and the model can fit itself to you. Until then it uses the textbook values.`,
+      pw_listo: 'There is enough now to fit the model to you.',
+      pw_sin: 'No rides long enough to hold a 20-minute effort yet.',
+      pw_btn: 'Save', pw_ok: 'Saved.',
       f_h: 'Activity FIT files', f_p: 'Coming soon: upload Garmin or Hammerhead activities when they do not sync on their own.',
       local: 'Everything is stored only on this phone.', clear: 'Delete loaded data', cleared: 'Loaded data deleted from this phone.',
       store_full: 'There is no room to save on this phone.'
@@ -147,6 +163,16 @@
           <label><input type="checkbox" id="rr-late"><span id="rr-l-late"></span></label>
         </div>
         <button type="button" class="rr-btn" id="rr-d-btn"></button><div class="rr-st" id="rr-d-st" role="status"></div></div>
+      <div class="rr-sec"><h3 id="rr-pw-h"></h3><p id="rr-pw-p"></p>
+        <div class="rr-grid">
+          <label><span id="rr-l-peso"></span><input id="rr-peso" inputmode="decimal" autocomplete="off"></label>
+          <label><span id="rr-l-hrmax"></span><input id="rr-hrmax" inputmode="numeric" autocomplete="off"></label>
+          <label><span id="rr-l-ftp"></span><input id="rr-ftp" inputmode="numeric" autocomplete="off"></label>
+        </div>
+        <p id="rr-pw-dias" style="margin-top:4px"></p>
+        <div id="rr-pw-lista"></div>
+        <button type="button" class="rr-btn" id="rr-pw-btn"></button>
+        <div class="rr-st" id="rr-pw-st" role="status"></div></div>
       <div class="rr-sec"><h3 id="rr-f-h"></h3><p id="rr-f-p"></p></div>
       <div class="rr-sec rr-foot"><span id="rr-local"></span><button type="button" class="rr-link" id="rr-clear"></button></div>
     </div>`;
@@ -158,6 +184,7 @@
     $('rr-files').addEventListener('change', onFiles);
     $('rr-d-btn').addEventListener('click', onToday);
     $('rr-wk-btn').addEventListener('click', onWorkout);
+    $('rr-pw-btn').addEventListener('click', onPower);
     $('rr-clear').addEventListener('click', () => { window.rrLocal.clear(); $('rr-d-st').textContent = t('cleared'); });
     labels();
     const sw = document.getElementById('lang-sw'); if (sw) sw.addEventListener('click', () => setTimeout(labels, 0));
@@ -170,9 +197,68 @@
     set('rr-l-wk-dur', 'wk_dur'); set('rr-l-wk-rpe', 'wk_rpe'); set('rr-l-wk-cal', 'wk_cal'); set('rr-wk-btn', 'wk_btn');
     set('rr-d-h', 'd_h'); set('rr-d-p', 'd_p');
     set('rr-l-alc', 'alc'); set('rr-l-sug', 'sug'); set('rr-l-late', 'late'); set('rr-d-btn', 'd_btn'); set('rr-f-h', 'f_h'); set('rr-f-p', 'f_p'); set('rr-local', 'local'); set('rr-clear', 'clear');
+    set('rr-pw-h', 'pw_h'); set('rr-pw-p', 'pw_p'); set('rr-l-peso', 'pw_peso'); set('rr-l-hrmax', 'pw_hrmax');
+    set('rr-l-ftp', 'pw_ftp'); set('rr-pw-btn', 'pw_btn');
+  }
+
+  // ---------- potencia y perfil ----------
+  // El modelo elige las salidas donde preguntar; aqui solo se dibujan. Son 6 preguntas
+  // en vez de pedirle los vatios de cientos de entrenamientos.
+  function pintarPotencia() {
+    const host = $('rr-pw-lista'); if (!host) return;
+    host.replaceChildren();
+    const acts = (window.dash && dash.data('activities').data) || [];
+    const guardado = (window.rrLocal && window.rrLocal.get()) || {};
+    const perfilLocal = guardado.perfil || {};
+    const zonas = (window.dash && (dash.data('zones').data || [])[0]) || {};
+    // Lo que ya este guardado se muestra, venga de intervals.icu o escrito a mano.
+    $('rr-peso').value = perfilLocal.weight_kg != null ? perfilLocal.weight_kg : (zonas.weight_kg || '');
+    $('rr-hrmax').value = perfilLocal.hr_max != null ? perfilLocal.hr_max : (zonas.hr_max || '');
+    $('rr-ftp').value = perfilLocal.ftp_w != null ? perfilLocal.ftp_w : (zonas.ftp_w || '');
+
+    if (!window.rrModelo) { $('rr-pw-dias').textContent = ''; return; }
+    const falta = window.rrModelo.queFalta(acts, { weight_kg: $('rr-peso').value, hr_max: $('rr-hrmax').value });
+    const cand = window.rrModelo.candidatos20min(acts, 6);
+    $('rr-pw-dias').textContent = !cand.length ? t('pw_sin')
+      : falta.potencias > 0 ? t('pw_dias') + ' ' + t('pw_falta')(falta.potencias)
+      : t('pw_dias') + ' ' + t('pw_listo');
+    const puestas = guardado.potencias || {};
+    cand.forEach((c) => {
+      const fila = document.createElement('label');
+      fila.style.cssText = 'display:grid;grid-template-columns:1fr 92px;gap:8px;align-items:center;margin-bottom:8px';
+      const izq = document.createElement('span');
+      izq.style.cssText = 'font-size:13px;color:var(--ink2);line-height:1.3';
+      const fecha = new Date(c.date + 'T00:00:00Z');
+      const dia = fecha.toLocaleDateString(lang() === 'en' ? 'en-US' : 'es-ES', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+      izq.textContent = `${dia} · ${c.moving_min} min` + (c.avg_hr ? ` · ${c.avg_hr} lpm` : '');
+      const inp = document.createElement('input');
+      inp.inputMode = 'numeric'; inp.autocomplete = 'off'; inp.placeholder = 'W';
+      inp.dataset.fecha = c.date;
+      inp.className = 'rr-pw-in';
+      inp.style.cssText = 'width:100%;box-sizing:border-box;padding:10px;border-radius:12px;border:1px solid var(--hair);background:rgba(255,255,255,.08);color:var(--ink);font:600 16px/1 -apple-system,system-ui,sans-serif';
+      if (puestas[c.date] != null) inp.value = puestas[c.date];
+      fila.appendChild(izq); fila.appendChild(inp);
+      host.appendChild(fila);
+    });
+  }
+
+  function onPower() {
+    const st = $('rr-pw-st');
+    const perfil = {};
+    const peso = num($('rr-peso').value); if (peso != null && peso > 20 && peso < 250) perfil.weight_kg = peso;
+    const hrm = num($('rr-hrmax').value); if (hrm != null && hrm > 100 && hrm < 230) perfil.hr_max = hrm;
+    const ftp = num($('rr-ftp').value); if (ftp != null && ftp > 50 && ftp < 600) perfil.ftp_w = ftp;
+    const potencias = {};
+    [...document.querySelectorAll('.rr-pw-in')].forEach((i) => {
+      const v = num(i.value);
+      if (v != null && v > 50 && v < 800) potencias[i.dataset.fecha] = Math.round(v);
+    });
+    const ok = window.rrLocal.savePerfil(perfil, potencias);
+    st.textContent = ok ? t('pw_ok') : t('store_full');
+    setTimeout(pintarPotencia, 50);
   }
   let lastFocus = null;
-  function open() { labels(); if (!$('rr-wk-date').value) $('rr-wk-date').value = todayIso(); lastFocus = document.activeElement; $('rr-sheet').hidden = false; $('rr-close').focus(); }
+  function open() { labels(); pintarPotencia(); if (!$('rr-wk-date').value) $('rr-wk-date').value = todayIso(); lastFocus = document.activeElement; $('rr-sheet').hidden = false; $('rr-close').focus(); }
   function close() { $('rr-sheet').hidden = true; if (lastFocus) lastFocus.focus(); }
 
   async function onFiles(e) {

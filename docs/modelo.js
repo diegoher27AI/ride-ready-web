@@ -224,6 +224,64 @@
     return x.some((v) => !isFinite(v)) ? null : x;
   }
 
+  // ---------- que dias vale la pena preguntar ----------
+  // Sin potenciometro el modelo se queda sin con que ajustar. En vez de pedirle al ciclista
+  // que escriba los vatios de todas sus salidas, se eligen las pocas donde un esfuerzo de
+  // 20 min de verdad cabe y pudo ser fuerte: asi son 6 preguntas en vez de 300.
+  //
+  // Se busca variedad en el tiempo a proposito: 8 salidas del mismo mes no dicen nada del
+  // efecto del entrenamiento, que es lo que hay que medir.
+  function candidatos20min(activities, cuantos) {
+    const n = cuantos || 6;
+    const yaTiene = new Set((activities || []).filter((a) => num(a.p20_w) > 0).map((a) => String(a.date).slice(0, 10)));
+    const aptas = (activities || []).filter((a) => {
+      const min = num(a.moving_min), esf = num(a.relative_effort);
+      if (!(min >= 25)) return false;                    // un esfuerzo de 20 min tiene que caber
+      if (!isFinite(esf) || esf <= 0) return false;
+      const dep = String(a.sport || '');
+      if (/Walk|Hike|Swim|WeightTraining/i.test(dep)) return false;
+      return !yaTiene.has(String(a.date).slice(0, 10));
+    }).map((a) => ({
+      date: String(a.date).slice(0, 10), name: a.name, sport: a.sport,
+      moving_min: Math.round(num(a.moving_min)), relative_effort: Math.round(num(a.relative_effort)),
+      avg_hr: isFinite(num(a.avg_hr)) ? Math.round(num(a.avg_hr)) : null,
+      max_hr: isFinite(num(a.max_hr)) ? Math.round(num(a.max_hr)) : null,
+      // Lo duro que fue por minuto: lo que mejor separa una salida fuerte de un paseo largo.
+      intensidad: num(a.relative_effort) / num(a.moving_min),
+    }));
+    if (!aptas.length) return [];
+    // Se reparten por meses y se toma la mas intensa de cada uno, de lo mas nuevo a lo mas viejo.
+    const porMes = new Map();
+    aptas.forEach((a) => {
+      const k = a.date.slice(0, 7);
+      const q = porMes.get(k);
+      if (!q || a.intensidad > q.intensidad) porMes.set(k, a);
+    });
+    const meses = [...porMes.keys()].sort().reverse();
+    const out = meses.slice(0, n).map((k) => porMes.get(k));
+    // Si no hay suficientes meses, se completa con las mas intensas que queden.
+    if (out.length < n) {
+      const puestas = new Set(out.map((a) => a.date));
+      aptas.filter((a) => !puestas.has(a.date))
+        .sort((x, y) => y.intensidad - x.intensidad)
+        .slice(0, n - out.length)
+        .forEach((a) => out.push(a));
+    }
+    return out.sort((a, b) => (a.date < b.date ? 1 : -1))
+      .map((a) => ({ ...a, intensidad: Math.round(a.intensidad * 100) / 100 }));
+  }
+
+  // ¿Que le falta al modelo para poder trabajar? Sirve para pedir solo lo necesario.
+  function queFalta(activities, perfil) {
+    const conPotencia = (activities || []).filter((a) => num(a.p20_w) > 0).length;
+    return {
+      potencias: Math.max(0, 8 - conPotencia),          // cuantas mediciones faltan para ajustar
+      tiene: conPotencia,
+      peso: !(perfil && num(perfil.weight_kg) > 0),
+      hr_max: !(perfil && num(perfil.hr_max) > 0),
+    };
+  }
+
   // ---------- todo junto ----------
   function calcular(activities, whoop) {
     const forma = ajustarForma(activities);
@@ -239,5 +297,5 @@
     };
   }
 
-  window.rrModelo = { calcular, ajustarForma, recuperacion, cargaDiaria, ema, resolver, bondad, CAMPOS };
+  window.rrModelo = { calcular, ajustarForma, recuperacion, cargaDiaria, ema, resolver, bondad, candidatos20min, queFalta, CAMPOS };
 })();
