@@ -2,7 +2,9 @@
 const fs = require('fs');
 const src = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'panel.html'), 'utf8');
 
-const start = src.indexOf('  function dayCall() {');
+// Se empieza en la lectura del dia (sensacion / Whoop / reloj), que vive justo antes
+// de dayCall y es parte de la misma decision.
+const start = src.indexOf('  const SENSACION = {');
 const end = src.indexOf('  function renderCall() {');   // incluye dayCall, porCarga y callTargets
 if (start < 0 || end < 0) throw new Error('no encontre dayCall/callTargets');
 const code = src.slice(start, end);
@@ -22,9 +24,11 @@ const pmcState = () => PMC;
 const firstOf = (id) => (id === 'zones' ? ZONES : null);
 // porCarga (la decision sin Whoop) tambien mira las actividades y la racha.
 const rowsOf = (id) => (id === 'activities' ? ACTS : null);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const todayIsoLocal = () => TODAY;
 const noRestStreak = () => RACHA;
 
-const api = eval('(function () {' + code + '\nreturn { dayCall, callTargets, porCarga };\n})()');
+const api = eval('(function () {' + code + '\nreturn { dayCall, callTargets, porCarga, lecturaDelDia };\n})()');
 const dayCall = api.dayCall, callTargets = api.callTargets;
 
 const TODAY = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);

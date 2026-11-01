@@ -93,6 +93,16 @@
       const pw = computePower(out.activities, peso);
       if (pw.length) out.power = pw;
     }
+    if (loc.sensacion && Object.keys(loc.sensacion).length) {
+      const base = out.whoop && out.whoop.length ? out.whoop : [];
+      const porFecha = new Map(base.map((r) => [r.date, r]));
+      Object.entries(loc.sensacion).forEach(([f, o]) => {
+        const r = porFecha.get(f);
+        if (r) { r.sensacion = o.v; r.sensacion_nota = o.n; }
+        else porFecha.set(f, { date: f, sensacion: o.v, sensacion_nota: o.n, source: 'manual' });
+      });
+      out.whoop = [...porFecha.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+    }
     if (out.whoop && out.whoop.length) {
       const fx = whoopFx(out.whoop, out.journal_flags, out.pmc || raw.pmc);
       if (fx.length) out.whoop_fx = fx;
@@ -216,7 +226,12 @@
       raw.fitness_hist = raw.pmc.filter((d, i) => i % 7 === 0).map((d) => ({ date: d.date, fitness: d.fitness, fatigue: d.fatigue }));
     }
     if (w.data && w.data.length) {
-      raw.whoop = w.data.map((x) => ({ date: x.date, recovery: x.readiness, hrv: x.hrv, rhr: x.resting_hr, asleep_h: x.sleep_min != null ? Math.round((x.sleep_min / 60) * 100) / 100 : null, need_h: null, sleep_perf: null, debt_min: null, resp: null, deep_min: null, rem_min: null, source: 'intervals.icu' }));
+      raw.whoop = w.data.map((x) => ({ date: x.date, recovery: x.readiness, hrv: x.hrv, rhr: x.resting_hr,
+        asleep_h: x.sleep_min != null ? Math.round((x.sleep_min / 60) * 100) / 100 : null,
+        // Un Garmin no da "recuperacion" pero si puntuacion de sueno. Se guarda aparte
+        // para poder leer el dia de quien no usa Whoop.
+        sleep_score: x.sleep_score, sensacion: x.sensacion,
+        need_h: null, sleep_perf: null, debt_min: null, resp: null, deep_min: null, rem_min: null, source: 'intervals.icu' }));
     }
     // Peso, FTP y zonas de verdad. Solo se reemplaza lo que si vino: si falta una pieza,
     // se queda la del ejemplo antes que dejar la pantalla sin numeros.
@@ -305,6 +320,23 @@
       loc.perfil = { ...(loc.perfil || {}), ...(perfil || {}) };
       loc.potencias = { ...(loc.potencias || {}), ...(potencias || {}) };
       const ok = writeLocal(loc); rebuild(); fire(); return ok;
+    },
+    // Como dijo que se sentia hoy. Es el dato mas fiable que hay y, para quien solo
+    // carga entrenamientos, el unico.
+    saveSensacion(fecha, valor, nota) {
+      const loc = readLocal();
+      loc.sensacion = { ...(loc.sensacion || {}), [fecha]: { v: valor, n: nota || null } };
+      const ok = writeLocal(loc); rebuild(); fire();
+      // Y a la cuenta, para que el modelo pueda aprender de esto con el tiempo.
+      if (sb) {
+        sb.auth.getSession().then(({ data }) => {
+          if (!data || !data.session) return;
+          sb.from('wellness').upsert({ user_id: data.session.user.id, date: fecha,
+            sensacion: valor, sensacion_nota: nota || null }, { onConflict: 'user_id,date' })
+            .then(() => {}, () => {});
+        });
+      }
+      return ok;
     },
     clear() { try { localStorage.removeItem(LOCAL); } catch (e) {} rebuild(); fire(); }
   };

@@ -179,7 +179,7 @@ Deno.serve(async (req) => {
     // intervals.icu crea el dia de bienestar en cuanto amanece, aunque Whoop no haya
     // mandado nada. Esas filas vacias no se guardan: no aportan y hacen parecer que hay
     // un dato del dia cuando no lo hay. Si luego llega el dato, el upsert la crea.
-    const tieneAlgo = (w: any) => w.readiness != null || w.hrv != null || w.restingHR != null || w.sleepSecs != null;
+    const tieneAlgo = (w: any) => w.readiness != null || w.hrv != null || w.restingHR != null || w.sleepSecs != null || w.sleepScore != null;
     const wellRows = (wellness as any[]).filter(tieneAlgo).map((w) => ({
       user_id: userId,
       date: w.id,
@@ -187,6 +187,9 @@ Deno.serve(async (req) => {
       hrv: w.hrv ?? null,
       resting_hr: w.restingHR ?? null,
       sleep_min: w.sleepSecs != null ? Math.round(w.sleepSecs / 60) : null,
+      // Un Garmin no da "recuperacion", pero si da puntuacion de sueno. Con eso, la VFC
+      // y el pulso en reposo alcanza para leer el dia sin Whoop.
+      sleep_score: w.sleepScore != null ? Math.round(Number(w.sleepScore)) : null,
       respiration: w.respiration ?? null,
       raw: w,
       updated_at: new Date().toISOString(),

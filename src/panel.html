@@ -172,6 +172,13 @@
 .ins b { font-size: 15px; display: block; margin-bottom: 2px; }
 .ins p { margin: 0; font-size: 13px; color: var(--ink2); line-height: 1.4; }
 
+.sens-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 12px; }
+.sens-row button { appearance: none; border: 1px solid var(--hair); background: var(--glass2); color: var(--ink);
+  border-radius: 14px; padding: 10px 2px 8px; cursor: pointer; display: grid; gap: 4px; justify-items: center;
+  font: 600 11px/1.15 -apple-system, system-ui, sans-serif; min-height: 62px; }
+.sens-row button span.e { font-size: 22px; line-height: 1; }
+.sens-row button[aria-pressed="true"] { background: rgba(255,159,10,.22); border-color: rgba(255,159,10,.7); }
+.sens-row button:active { transform: scale(.95); }
 .meta-mas { appearance: none; border: 1px solid var(--hair); background: var(--glass2); color: var(--ink);
   width: 34px; height: 34px; border-radius: 50%; font: 700 22px/1 -apple-system, system-ui, sans-serif; cursor: pointer; flex: none; }
 .meta-mas:active { transform: scale(.94); }
@@ -367,6 +374,13 @@
       <div class="pet-actions" id="pet-actions"></div>
      </div>
     </div>
+   </div>
+
+   <div class="g" id="card-sens" hidden style="margin-bottom:14px;">
+    <h3 id="sens-h">¿Cómo te sientes hoy?</h3>
+    <p class="cap" id="sens-p">—</p>
+    <div class="sens-row" id="sens-row"></div>
+    <p class="cap" id="sens-ya" hidden style="margin-top:10px"></p>
    </div>
 
    <div class="g" id="card-call" data-source="whoop brief">
@@ -699,8 +713,8 @@
     // Ojo: +null y +'' dan 0, no NaN. Un dia sin recuperacion se leia como "recuperacion 0%"
     // y la app mandaba descanso total con un dia perfecto detras. Aqui vacio es vacio.
     const n = (v) => (v == null || v === '' ? NaN : +v);
-    return r.map((d) => ({ ...d, dt: pd(d.date), recovery: n(d.recovery), hrv: n(d.hrv), rhr: n(d.rhr), hrv_7d: n(d.hrv_7d), hrv_30d: n(d.hrv_30d), rhr_7d: n(d.rhr_7d), rhr_30d: n(d.rhr_30d), asleep_h: d.asleep_h == null || d.asleep_h === '' ? null : +d.asleep_h, need_h: d.need_h == null || d.need_h === '' ? null : +d.need_h }))
-      .filter((d) => isFinite(d.recovery) || isFinite(d.hrv) || isFinite(d.rhr) || d.asleep_h != null)
+    return r.map((d) => ({ ...d, dt: pd(d.date), recovery: n(d.recovery), hrv: n(d.hrv), rhr: n(d.rhr), hrv_7d: n(d.hrv_7d), hrv_30d: n(d.hrv_30d), rhr_7d: n(d.rhr_7d), rhr_30d: n(d.rhr_30d), sleep_score: n(d.sleep_score), sensacion: n(d.sensacion), asleep_h: d.asleep_h == null || d.asleep_h === '' ? null : +d.asleep_h, need_h: d.need_h == null || d.need_h === '' ? null : +d.need_h }))
+      .filter((d) => isFinite(d.recovery) || isFinite(d.hrv) || isFinite(d.rhr) || isFinite(d.sleep_score) || isFinite(d.sensacion) || d.asleep_h != null)
       .sort((a, b) => a.dt - b.dt);
   }
   const recColor = (v) => (v >= 67 ? '#30D158' : v >= 34 ? '#FFD60A' : '#FF453A');
@@ -710,13 +724,48 @@
   // 34 a 66% = rodada suave de 45 min; bajo 34% = descanso total.
   // Baja un nivel si la VFC esta mas de 10% bajo su promedio de 30 dias
   // o el pulso en reposo esta 4 lpm o mas sobre el suyo.
+  // De donde sale la lectura del dia, en orden:
+  //   1. Como dijo el ciclista que se siente. Es lo mas fiable que hay: el sabe si durmio
+  //      mal, si anda resfriado o si tiene ganas, y ningun aparato lo sabe.
+  //   2. La recuperacion de Whoop, si la tiene.
+  //   3. Lo que da un Garmin: puntuacion de sueno, VFC y pulso en reposo contra su base.
+  // Nunca se inventa un numero: si no hay ninguna de las tres, se dice.
+  const SENSACION = { 1: 15, 2: 35, 3: 60, 4: 78, 5: 90 };   // a algo comparable con la recuperacion
+
+  function lecturaDelDia(fila) {
+    if (!fila) return null;
+    if (isFinite(fila.sensacion) && SENSACION[fila.sensacion] != null) {
+      return { valor: SENSACION[fila.sensacion], de: 'sensacion', sensacion: fila.sensacion };
+    }
+    if (isFinite(fila.recovery)) return { valor: fila.recovery, de: 'whoop' };
+    // Sin Whoop: se arma con lo del reloj. El sueno manda, y la VFC y el pulso ajustan.
+    const sueno = isFinite(fila.sleep_score) ? fila.sleep_score : null;
+    const hrvRel = isFinite(fila.hrv) && isFinite(fila.hrv_30d) && fila.hrv_30d > 0 ? fila.hrv / fila.hrv_30d - 1 : null;
+    const rhrRel = isFinite(fila.rhr) && isFinite(fila.rhr_30d) && fila.rhr_30d > 0 ? fila.rhr - fila.rhr_30d : null;
+    if (sueno == null && hrvRel == null && rhrRel == null) return null;
+    let v = sueno != null ? sueno : 65;
+    if (hrvRel != null) v += clamp(hrvRel * 100, -20, 20);
+    if (rhrRel != null) v += clamp(-rhrRel * 3, -15, 15);
+    return { valor: clamp(Math.round(v), 1, 99), de: 'reloj', sueno, hrvRel, rhrRel };
+  }
+
+  // La fila de hoy, venga de donde venga.
+  function filaDeHoy() {
+    const w = whoopRows() || [];
+    const hoy = todayIsoLocal();
+    return w.find((x) => x.date === hoy) || null;
+  }
+
   function dayCall() {
     const w = whoopRows() || [];
     // La ultima fila puede venir vacia: intervals.icu crea el dia de bienestar en cuanto
     // amanece (y hasta el de manana segun la zona horaria) aunque Whoop todavia no haya
     // mandado la recuperacion. Antes se miraba esa fila a ciegas y la app se rendia con
     // un dia perfecto en la fila de atras. Se toma la ultima que SI trae recuperacion.
-    const last = w.filter((x) => isFinite(x.recovery)).slice(-1)[0] || null;
+    // Se toma el ultimo dia que tenga ALGUNA lectura: sensacion, Whoop o reloj.
+    const conLectura = w.map((x) => ({ fila: x, lec: lecturaDelDia(x) })).filter((x) => x.lec);
+    const ultimo = conLectura.slice(-1)[0] || null;
+    const last = ultimo ? { ...ultimo.fila, recovery: ultimo.lec.valor, __de: ultimo.lec.de, __lec: ultimo.lec } : null;
     const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
     // Quien NO usa Whoop igual tiene que recibir una decision: se arma con lo que si
     // tiene (frescura, relacion de carga, dias seguidos entrenando). Antes la app se
@@ -748,7 +797,8 @@
     const downgraded = (hrvLow || rhrHigh) && level > 0;
     if (downgraded) level -= 1;
     const spike = level === 2 && acwr != null && acwr > 1.5;
-    return { date: last.date, rec, level, downgraded, spike, acwr, why, base: 'whoop', stale: last.date !== todayIso };
+    return { date: last.date, rec, level, downgraded, spike, acwr, why,
+      base: last.__de || 'whoop', lectura: last.__lec || null, stale: last.date !== todayIso };
   }
 
   // La decision cuando no hay recuperacion: solo con la carga de entrenamiento.
@@ -810,6 +860,61 @@
     }).join('\n\n');
   }
 
+  // ¿Como te sientes hoy? Es el dato mas fiable que existe para decidir el dia: el
+  // ciclista sabe si durmio mal, si anda resfriado o si tiene ganas, y ningun aparato
+  // lo sabe. Para quien solo carga entrenamientos, ademas, es lo UNICO que hay.
+  //
+  // Se muestra siempre que no haya contestado hoy. Si ya hay datos del reloj, igual se
+  // ofrece: lo que el diga manda sobre el aparato.
+  const SENS_OPC = [
+    [1, '😵', ['Wrecked', 'Fatal']],
+    [2, '😕', ['Rough', 'Mal']],
+    [3, '😐', ['Normal', 'Normal']],
+    [4, '🙂', ['Good', 'Bien']],
+    [5, '💪', ['Great', 'Muy bien']],
+  ];
+
+  function renderSensacion() {
+    const card = $('card-sens'); if (!card) return;
+    // Sin cuenta ni datos propios no se pregunta nada: estariamos preguntandole al ejemplo.
+    if (!misDatos()) { card.hidden = true; return; }
+    const hoy = todayIsoLocal();
+    const fila = filaDeHoy();
+    const ya = fila && isFinite(fila.sensacion) ? fila.sensacion : null;
+    const hayAparato = !!(fila && (isFinite(fila.recovery) || isFinite(fila.sleep_score) || isFinite(fila.hrv)));
+    card.hidden = false;
+    txt('sens-h', L('How do you feel today?', '¿Cómo te sientes hoy?'));
+    txt('sens-p', hayAparato
+      ? L('Your watch already has numbers for today. If what you feel says otherwise, yours wins.',
+          'Tu reloj ya tiene números de hoy. Si lo que sientes dice otra cosa, manda lo tuyo.')
+      : L('This decides your day. You know things no device does.',
+          'Esto decide tu día. Tú sabes cosas que ningún aparato sabe.'));
+    const row = $('sens-row'); if (!row) return;
+    row.replaceChildren();
+    SENS_OPC.forEach(([v, emo, nom]) => {
+      const b2 = el('button'); b2.type = 'button';
+      b2.setAttribute('aria-pressed', String(ya === v));
+      b2.setAttribute('aria-label', L(nom[0], nom[1]));
+      const e = el('span', 'e', emo); b2.appendChild(e);
+      b2.appendChild(el('span', null, L(nom[0], nom[1])));
+      b2.addEventListener('click', () => {
+        if (window.rrLocal && window.rrLocal.saveSensacion) window.rrLocal.saveSensacion(hoy, ya === v ? null : v);
+        // Lo que sientes puede cambiar el dia entero, asi que se vuelve a dibujar todo.
+        render();
+      });
+      row.appendChild(b2);
+    });
+    const nota = $('sens-ya');
+    if (nota) {
+      nota.hidden = ya == null;
+      if (ya != null) {
+        const n = SENS_OPC.find((o) => o[0] === ya);
+        nota.textContent = L(`Noted: ${n ? n[2][0].toLowerCase() : ''}. Tap again to undo.`,
+          `Anotado: ${n ? n[2][1].toLowerCase() : ''}. Tócalo otra vez para deshacer.`);
+      }
+    }
+  }
+
   function renderCall() {
     const w = whoopRows() || [];
     const c = dayCallFinal();
@@ -820,8 +925,12 @@
     if (!c && !w.length) return;
     const last = w.filter((x) => isFinite(x.recovery)).slice(-1)[0] || null;
     const isToday = !!c && !c.stale;
+    const DEnombre = c && c.base === 'sensacion' ? L('how you feel', 'cómo te sientes')
+      : c && c.base === 'reloj' ? L('your watch', 'tu reloj') : null;
     txt('call-cap', porCargaAhora
       ? L('No recovery data, so today is decided from your training load.', 'Sin datos de recuperación, así que el día se decide por tu carga de entrenamiento.')
+      : DEnombre
+        ? L(`Today is read from ${DEnombre}.`, `Hoy se lee de ${DEnombre}.`)
       : !last ? L('Waiting for this morning’s recovery.', 'Esperando la recuperación de esta mañana.')
       : isToday
         ? L('Your recovery this morning: ', 'Tu recuperación de esta mañana: ') + fmt0(last.recovery) + '%.'
@@ -964,6 +1073,11 @@
         ? [c.why.length
             ? L(`From your training load: ${c.why.join(L(' and ', ' y '))}`, `Por tu carga de entrenamiento: ${c.why.join(' y ')}`)
             : L('From your training load: freshness and load ratio are in a good place', 'Por tu carga de entrenamiento: tu frescura y tu relación de carga están bien')]
+        : c.base === 'sensacion'
+          ? [L('Because you said how you feel today', 'Porque dijiste cómo te sientes hoy')]
+        : c.base === 'reloj'
+          ? [L(`From your watch: ${c.lectura && c.lectura.sueno != null ? `sleep ${fmt0(c.lectura.sueno)}, ` : ''}HRV and resting heart rate against your own baseline`,
+               `De tu reloj: ${c.lectura && c.lectura.sueno != null ? `sueño ${fmt0(c.lectura.sueno)}, ` : ''}VFC y pulso en reposo contra tu propia base`)]
         : [L(`Recovery ${fmt0(c.rec)}%`, `Recuperación ${fmt0(c.rec)}%`)];
       if (c.downgraded) bits.push(L(`dropped one level because ${c.why.join(L(' and ', ' y '))}`, `bajó un nivel porque ${c.why.join(' y ')}`));
       else if (c.spike) bits.push(L(`load ratio ${fmt2(c.acwr)} is over 1.5, so keep it aerobic`, `la relación de carga ${fmt2(c.acwr)} pasa de 1.5, así que mantenlo aeróbico`));
@@ -2854,7 +2968,7 @@
   function render() {
     applyLocale();
     safe(renderHeader); safe(renderUpd);
-    if (page === 'today') { safe(renderRings); safe(renderPet); safe(renderCall); safe(renderWeek); safe(renderWorkout); safe(renderInsights); safe(renderPlan); }
+    if (page === 'today') { safe(renderRings); safe(renderPet); safe(renderSensacion); safe(renderCall); safe(renderWeek); safe(renderWorkout); safe(renderInsights); safe(renderPlan); }
     if (page === 'trends') { safe(renderHrv); safe(renderRhr); safe(renderSleep); safe(renderFx); safe(renderPmc); safe(renderAcwr); safe(renderPower); safe(renderEf); safe(renderMonth); }
     if (page === 'history') safe(renderHistory);
     if (page === 'model') {
