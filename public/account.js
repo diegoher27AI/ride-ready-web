@@ -21,6 +21,13 @@
         + (d ? ` Tu ultima recuperacion es del ${d}.` : ''),
       have: (a, d1, d2, w, wd) => `Guardado en tu cuenta: ${a} actividades, de ${d1} a ${d2}. Bienestar: ${w} dias, el ultimo ${wd}.`,
       have_none: 'Todavia no hay nada guardado. Toca "Traer mis datos".',
+      av_h: 'Avisos cada manana', av_p: 'Te avisamos apenas lleguen tus numeros del dia, con la decision y el entrenamiento. Solo funciona con la app instalada desde el icono.',
+      av_on: 'Activar avisos', av_off: 'Apagar avisos',
+      av_listo: 'Avisos activados. Te escribimos cuando lleguen tus numeros.',
+      av_no: 'No se activaron: diste que no. Puedes cambiarlo en Ajustes del telefono, en Notificaciones.',
+      av_apagado: 'Avisos apagados.',
+      av_imposible: 'Este telefono no soporta avisos. En iPhone hace falta iOS 16.4 o mas nuevo y abrir la app desde el icono, no desde Safari.',
+      av_prueba: 'Mandarme uno de prueba', av_mandado: 'Mandado. Deberia llegarte en unos segundos.',
     },
     en: {
       btn: 'Account', title: 'Your account', close: 'Close',
@@ -38,6 +45,13 @@
         + (d ? ` Your last recovery is from ${d}.` : ''),
       have: (a, d1, d2, w, wd) => `Stored in your account: ${a} activities, from ${d1} to ${d2}. Wellness: ${w} days, last one ${wd}.`,
       have_none: 'Nothing stored yet. Tap "Fetch my data".',
+      av_h: 'Morning notifications', av_p: 'We tell you as soon as your numbers land, with the call and the workout. Only works with the app installed from the icon.',
+      av_on: 'Turn on notifications', av_off: 'Turn off notifications',
+      av_listo: 'Notifications on. We write when your numbers land.',
+      av_no: 'Not turned on: you said no. You can change it in your phone Settings, under Notifications.',
+      av_apagado: 'Notifications off.',
+      av_imposible: 'This phone cannot do notifications. On iPhone you need iOS 16.4 or newer, and the app opened from the icon, not from Safari.',
+      av_prueba: 'Send me a test one', av_mandado: 'Sent. It should arrive in a few seconds.',
     },
   };
   const lang = () => { try { const v = localStorage.getItem('rr_lang'); if (v === 'en' || v === 'es') return v; } catch (e) {} const p = window.dash && dash.params ? dash.params() : {}; return p && p.lang === 'en' ? 'en' : 'es'; };
@@ -73,6 +87,7 @@
     $('ra-login').hidden = signedIn;
     $('ra-account').hidden = !signedIn;
     set('ra-intro', t('intro')); set('ra-l-email', t('email')); set('ra-send', t('send')); set('ra-l-code', t('code')); set('ra-confirm', t('confirm'));
+    set('ra-av-h', t('av_h')); set('ra-av-p', t('av_p')); set('ra-av-test', t('av_prueba'));
     set('ra-iv-h', t('iv_h')); set('ra-iv-p', t('iv_p')); set('ra-l-key', t('iv_key')); set('ra-l-athlete', t('iv_athlete')); set('ra-save', t('save')); set('ra-sync', t('sync')); set('ra-signout', t('signout'));
     if (signedIn) set('ra-signed', t('signed_as')(session.user.email));
   }
@@ -105,7 +120,75 @@
     } catch (e) { box.textContent = ''; }
   }
 
-  function open() { $('ra-sheet').hidden = false; render(); if (session) { loadConnection(); showHave(); } }
+  // ---------- avisos ----------
+  const VAPID = 'BI0sJLWBMM73_IF7up2X8HVgidRqRK6WZ0TSrWYYrTVv8MM0LfyUR_WcWH8E9jv5PpwDjfw2AsR6QKQIXzaivuk';
+  const sePuede = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const b64 = (s2) => {
+    const pad = '='.repeat((4 - (s2.length % 4)) % 4);
+    const raw = atob((s2 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+  };
+  const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  async function suscripcionActual() {
+    if (!sePuede()) return null;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return null;
+    return reg.pushManager.getSubscription();
+  }
+  async function pintarAvisos() {
+    const btn = $('ra-av-btn'), test = $('ra-av-test'); if (!btn) return;
+    if (!sePuede()) { btn.disabled = true; btn.textContent = t('av_on'); $('ra-av-st').textContent = t('av_imposible'); if (test) test.hidden = true; return; }
+    const sub = await suscripcionActual();
+    btn.disabled = false;
+    btn.textContent = sub ? t('av_off') : t('av_on');
+    if (test) test.hidden = !sub;
+  }
+  async function onAvisos() {
+    const st = $('ra-av-st'); const btn = $('ra-av-btn');
+    if (!sePuede() || !session) { st.textContent = t('av_imposible'); return; }
+    btn.disabled = true;
+    try {
+      const ya = await suscripcionActual();
+      if (ya) {
+        await sb.from('push_subs').delete().eq('endpoint', ya.endpoint).eq('user_id', session.user.id);
+        await ya.unsubscribe();
+        st.textContent = t('av_apagado');
+      } else {
+        // iOS exige que el permiso se pida respondiendo a un toque, no solo.
+        const permiso = await Notification.requestPermission();
+        if (permiso !== 'granted') { st.textContent = t('av_no'); btn.disabled = false; return; }
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID) });
+        const j = sub.toJSON ? sub.toJSON() : {};
+        let zona = 'America/Costa_Rica';
+        try { zona = Intl.DateTimeFormat().resolvedOptions().timeZone || zona; } catch (e) {}
+        const { error } = await sb.from('push_subs').upsert({
+          endpoint: sub.endpoint, user_id: session.user.id,
+          p256dh: (j.keys && j.keys.p256dh) || b64url(sub.getKey('p256dh')),
+          auth: (j.keys && j.keys.auth) || b64url(sub.getKey('auth')),
+          zona, fallos: 0,
+        }, { onConflict: 'endpoint' });
+        if (error) throw new Error(error.message);
+        st.textContent = t('av_listo');
+      }
+    } catch (e) {
+      st.textContent = (e && e.message) || t('err');
+    }
+    btn.disabled = false;
+    pintarAvisos();
+  }
+  async function onAvisoPrueba() {
+    const st = $('ra-av-st');
+    st.textContent = '…';
+    try {
+      const { error } = await sb.functions.invoke('enviar-avisos', { body: { prueba: true } });
+      if (error) throw new Error(error.message);
+      st.textContent = t('av_mandado');
+    } catch (e) { st.textContent = (e && e.message) || t('err'); }
+  }
+
+  function open() { $('ra-sheet').hidden = false; render(); if (session) { loadConnection(); showHave(); pintarAvisos(); } }
   function close() { $('ra-sheet').hidden = true; }
 
   function build() {
@@ -140,6 +223,10 @@
         <button type="button" class="ra-btn" id="ra-sync" style="margin-top:10px"></button>
         <div class="ra-st" id="ra-sync-st" role="status"></div>
         <div class="ra-st" id="ra-have" role="status"></div>
+        <h3 id="ra-av-h" style="margin-top:16px"></h3><p id="ra-av-p"></p>
+        <button type="button" class="ra-btn" id="ra-av-btn"></button>
+        <button type="button" class="ra-link" id="ra-av-test" hidden></button>
+        <div class="ra-st" id="ra-av-st" role="status"></div>
         <button type="button" class="ra-link" id="ra-signout"></button>
       </div>
     </div>`;
@@ -152,6 +239,8 @@
     $('ra-save').addEventListener('click', onSave);
     $('ra-sync').addEventListener('click', onSync);
     $('ra-signout').addEventListener('click', onSignOut);
+    $('ra-av-btn').addEventListener('click', onAvisos);
+    $('ra-av-test').addEventListener('click', onAvisoPrueba);
     render();
     const sw = document.getElementById('lang-sw'); if (sw) sw.addEventListener('click', () => setTimeout(render, 0));
   }
