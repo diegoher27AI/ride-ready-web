@@ -1140,6 +1140,32 @@
     return { ...r, steps: arr(obj(r.steps)) };
   }
 
+  // Los dias que el entrenador ya dejo armados hacia adelante. Antes el plan se guardaba
+  // pero no se podia abrir desde la tarjeta: solo se veia hoy, y los botones de dia nunca
+  // aparecian porque la lista tenia un solo elemento.
+  function sessionsAhead(dias) {
+    const hoy = todayIsoLocal();
+    return (rowsOf('plan') || [])
+      .filter((p) => p.date > hoy)
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .slice(0, dias || 7)
+      .map((p) => {
+        const steps = arr(obj(p.steps)).map((st) => ({
+          name: st.name, min: +st.min, int: st.int || 'active',
+          p: arr(obj(st.p)).length === 2 ? arr(obj(st.p)).map(Number) : [0, 0],
+          hr: arr(obj(st.hr)).length === 2 ? arr(obj(st.hr)).map(Number) : null,
+        }));
+        const descanso = p.decision === 'descanso' || !steps.length;
+        return {
+          date: p.date, when: 'AM', futuro: true, descanso,
+          title: p.title || (descanso ? L('Rest', 'Descanso') : L('Planned session', 'Sesión planificada')),
+          purpose: [p.purpose, p.note].filter(Boolean).join(' '),
+          condition: descanso ? '' : L('Bike, power + HR.', 'Bici, potencia y pulso.'),
+          steps, duration_min: steps.reduce((a, x) => a + x.min, 0),
+        };
+      });
+  }
+
   function todaySession() {
     const tw = tweak();
     if (tw.skip) return null;                             // "hoy no puedo entrenar"
@@ -1248,10 +1274,26 @@
     // Con decision propia y fresca, solo se muestra el entrenamiento propio. Si hoy no hay uno
     // (descanso, o "sesion planificada" que todavia depende del calculo de la manana), se dice
     // en vez de mostrar el de ejemplo, que es lo que confundia.
-    if (c && !c.stale && !mine) {
+    const futuros = sessionsAhead();
+    // Dibuja los botones de dia: hoy primero, y despues lo que haya planificado.
+    const pintarDias = (filas, activo) => {
+      const d = $('sess-days'); if (!d) return;
+      d.replaceChildren();
+      if (filas.length < 2) return;
+      filas.forEach((f, i) => {
+        const bt = el('button', null, i === 0 && !f.futuro
+          ? L('Today', 'Hoy')
+          : wdFmt(pd(f.date)) + ' ' + pd(f.date).getUTCDate());
+        bt.setAttribute('aria-pressed', String(i === activo));
+        bt.addEventListener('click', () => { sessIdx = i; render(); });
+        d.appendChild(bt);
+      });
+    };
+    if (c && !c.stale && !mine && (sessIdx === 0 || !futuros.length)) {
       if (card) card.hidden = false;
       const tw = tweak();
-      const days0 = $('sess-days'); if (days0) days0.replaceChildren();
+      pintarDias([{ date: todayIsoLocal(), futuro: false }].concat(futuros), 0);
+      sessIdx = 0;
       txt('wk-eyebrow', L('Today', 'Hoy'));
       const lvl = tw.rough ? Math.max(0, c.level - 1) : c.level;
       txt('wk-title', tw.skip ? L('Day off', 'Día libre') : callTargets(lvl, lvl === 2 && c.spike).title);
@@ -1267,10 +1309,11 @@
     }
     // Datos propios pero viejos: todavia no hay decision de hoy. Se dice, en vez de mostrar
     // el entrenamiento de ejemplo como si fuera suyo.
-    const own = (!c || c.stale) && !mine ? ownWellness() : null;
+    const own = (!c || c.stale) && !mine && (sessIdx === 0 || !futuros.length) ? ownWellness() : null;
     if (own) {
       if (card) card.hidden = false;
-      const days1 = $('sess-days'); if (days1) days1.replaceChildren();
+      pintarDias([{ date: todayIsoLocal(), futuro: false }].concat(futuros), 0);
+      sessIdx = 0;
       const meta1 = $('wk-meta'); if (meta1) meta1.replaceChildren();
       const ul1 = $('wk-steps'); if (ul1) ul1.replaceChildren();
       const box1 = $('c-wk'); if (box1) box1.replaceChildren();
@@ -1281,15 +1324,21 @@
         'Tus números de hoy todavía no llegan. Toca Actualizar y aparece tu sesión. También puedes pedírsela a tu entrenador en el chat.'));
       return;
     }
-    const rows = mine || rowsOf('sessions');
-    if (!rows || !rows.length) { if (card) card.hidden = true; return; }
+    const hoyFilas = mine || (misDatos() ? [] : (rowsOf('sessions') || []));
+    // Si hoy no hay sesion propia pero si hay dias planificados, igual se deja entrar a
+    // verlos: se pone un hueco para hoy para que el primer boton siga siendo "Hoy".
+    const rows = hoyFilas.length ? hoyFilas.concat(futuros)
+      : futuros.length ? [{ date: todayIsoLocal(), hueco: true, title: '', purpose: '', steps: [] }].concat(futuros)
+      : [];
+    if (!rows.length) { if (card) card.hidden = true; return; }
     if (card) card.hidden = false;
     if (sessIdx >= rows.length) sessIdx = 0;
-    const days = $('sess-days'); days.replaceChildren();
-    if (rows.length > 1) rows.forEach((s, i) => { const bt = el('button', null, wdFmt(pd(s.date)) + ' ' + pd(s.date).getUTCDate()); bt.setAttribute('aria-pressed', String(i === sessIdx)); bt.addEventListener('click', () => { sessIdx = i; render(); }); days.appendChild(bt); });
+    pintarDias(rows, sessIdx);
+    if (rows[sessIdx] && rows[sessIdx].hueco) { sessIdx = Math.min(1, rows.length - 1); }
     const s = rows[sessIdx]; const steps = arr(s.steps);
     txt('wk-title', s.title);
-    txt('wk-eyebrow', mine ? L('Today', 'Hoy') : 'Next ride · ' + uF('%A %b %-d')(pd(s.date)));
+    // El rotulo dice de que dia es lo que estas viendo, no siempre "hoy".
+    txt('wk-eyebrow', s.futuro ? uF('%A %b %-d')(pd(s.date)) : L('Today', 'Hoy'));
     const meta = $('wk-meta'); meta.replaceChildren();
     const work = steps.filter((x) => x.int === 'active');
     const mm = (k, v) => { const sp = el('span'); sp.appendChild(document.createTextNode(k)); sp.appendChild(el('b', 'num', v)); meta.appendChild(sp); };
