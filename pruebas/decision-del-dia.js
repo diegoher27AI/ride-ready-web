@@ -3,7 +3,7 @@ const fs = require('fs');
 const src = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'panel.html'), 'utf8');
 
 const start = src.indexOf('  function dayCall() {');
-const end = src.indexOf('  function renderCall() {');
+const end = src.indexOf('  function renderCall() {');   // incluye dayCall, porCarga y callTargets
 if (start < 0 || end < 0) throw new Error('no encontre dayCall/callTargets');
 const code = src.slice(start, end);
 
@@ -16,12 +16,15 @@ const L = (en) => en;
 const arr = (v) => (Array.isArray(v) ? v : []);
 const obj = (v) => v;
 
-let WHOOP = [], PMC = null, ZONES = null;
+let WHOOP = [], PMC = null, ZONES = null, ACTS = [], RACHA = 0;
 const whoopRows = () => WHOOP;
 const pmcState = () => PMC;
 const firstOf = (id) => (id === 'zones' ? ZONES : null);
+// porCarga (la decision sin Whoop) tambien mira las actividades y la racha.
+const rowsOf = (id) => (id === 'activities' ? ACTS : null);
+const noRestStreak = () => RACHA;
 
-const api = eval('(function () {' + code + '\nreturn { dayCall, callTargets };\n})()');
+const api = eval('(function () {' + code + '\nreturn { dayCall, callTargets, porCarga };\n})()');
 const dayCall = api.dayCall, callTargets = api.callTargets;
 
 const TODAY = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
@@ -87,7 +90,45 @@ check('recuperacion de hace 5 dias no decide', dayCall(), null);
 const yest = new Date(pd(TODAY).getTime() - DAY).toISOString().slice(0, 10);   // ayer en hora local, igual que el codigo
 WHOOP = [row({ date: yest, dt: pd(yest) })];
 check('la de ayer si decide, marcada como vieja', dayCall() && dayCall().stale, true);
-WHOOP = []; check('sin datos no decide', dayCall(), null);
+// Antes esto decia "sin datos no decide". Ahora, sin Whoop pero con historial de
+// entrenamientos, si decide: por carga. Sin nada de nada, sigue callada.
+WHOOP = []; check('sin Whoop pero con historial, decide por carga', dayCall() && dayCall().base, 'carga');
+PMC = null; check('sin Whoop y sin historial, no decide', dayCall(), null);
+PMC = { last: { acwr: 1 }, real: new Array(30).fill(0) };
+
+console.log('\nSin Whoop: decide con la carga de entrenamiento');
+const LLENO = { last: { acwr: 1.0, form: 5 }, real: new Array(40).fill(0) };
+WHOOP = []; PMC = LLENO; RACHA = 0;
+let d = dayCall();
+check('sin Whoop si decide, no se queda muda', !!d, true);
+check('y avisa que decidio por carga', d && d.base, 'carga');
+check('fresco y sin racha: verde', d && d.level, 2);
+check('no inventa un porcentaje de recuperacion', d && d.rec, null);
+
+PMC = { last: { acwr: 1.6, form: 5 }, real: new Array(40).fill(0) };
+check('relacion de carga sobre 1.5: descanso', dayCall().level, 0);
+PMC = { last: { acwr: 1.4, form: 5 }, real: new Array(40).fill(0) };
+check('relacion de carga 1.4: suave', dayCall().level, 1);
+PMC = LLENO; RACHA = 6;
+check('6 dias seguidos sin descanso: descanso', dayCall().level, 0);
+RACHA = 4;
+check('4 dias seguidos: suave', dayCall().level, 1);
+RACHA = 0; PMC = { last: { acwr: 1.0, form: -30 }, real: new Array(40).fill(0) };
+check('frescura muy baja: descanso', dayCall().level, 0);
+PMC = { last: { acwr: 1.0, form: -15 }, real: new Array(40).fill(0) };
+check('frescura baja: suave', dayCall().level, 1);
+PMC = { last: { acwr: 1.0, form: 5 }, real: new Array(10).fill(0) };
+check('con menos de 28 dias de historial no se arriesga', dayCall(), null);
+
+console.log('\nCon Whoop atrasado NO se decide por carga: se avisa');
+PMC = LLENO; RACHA = 0;
+const hace3 = new Date(pd(TODAY).getTime() - 3 * DAY).toISOString().slice(0, 10);
+WHOOP = [row({ date: hace3, dt: pd(hace3) })];
+check('usa Whoop pero viene atrasado: no decide', dayCall(), null);
+const hace20 = new Date(pd(TODAY).getTime() - 20 * DAY).toISOString().slice(0, 10);
+WHOOP = [row({ date: hace20, dt: pd(hace20) })];
+check('si hace 20 dias que no hay, ya no usa Whoop: decide por carga', dayCall() && dayCall().base, 'carga');
+WHOOP = [];
 
 console.log('\nObjetivos usan las zonas reales:');
 ZONES = { power_zones: [{ label: 'Z2 Endurance', min: 148, max: 198 }], heart_rate_zones: [{ label: 'Z1 Recovery', min: 0, max: 127 }, { label: 'Z2 Endurance', min: 128, max: 158 }] };

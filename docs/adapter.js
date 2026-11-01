@@ -185,7 +185,7 @@
       name: x.name, date: x.goal_date, priority: x.priority, notes: x.notes,
     }));
     if (a.data && a.data.length) {
-      raw.activities = a.data.map((x) => ({ date: x.date, name: x.name, sport: x.sport, moving_min: x.moving_min, distance_km: x.distance_km, relative_effort: x.relative_effort, calories: x.calories, avg_hr: x.avg_hr, max_hr: x.max_hr, avg_watts: x.avg_watts, p5_w: x.p5_w, p20_w: x.p20_w, weight_kg: x.weight_kg }));
+      raw.activities = a.data.map((x) => ({ date: x.date, name: x.name, sport: x.sport, moving_min: x.moving_min, distance_km: x.distance_km, relative_effort: x.relative_effort, calories: x.calories, avg_hr: x.avg_hr, max_hr: x.max_hr, avg_watts: x.avg_watts, p5_w: x.p5_w, p20_w: x.p20_w, weight_kg: x.weight_kg, source: 'intervals.icu' }));
       raw.pmc = computePmc(raw.activities);
       raw.monthly = computeMonthly(raw.activities);
       // Historial de forma fisica: el mismo pmc, aligerado a una muestra por semana.

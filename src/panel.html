@@ -384,6 +384,7 @@
      <h3>Next days</h3>
      <p class="cap">Reassessed every morning from your data.</p>
      <ul class="plan" id="plan"></ul>
+     <p class="cap" id="plan-vacio" hidden>No plan yet. Ask your coach in the chat to build your next days.</p>
     </div>
    </div>
 
@@ -497,6 +498,10 @@
 
   <!-- ============ MODEL ============ -->
   <section class="jx-page" id="model" hidden>
+   <div class="g" id="card-sinmodelo" hidden>
+    <h3>Your model is not built yet</h3>
+    <p class="cap">This tab learns from your own data: how your body answers to training, and what your recovery will be tomorrow. It needs the morning calculation on the server, which is still being built. Nothing here would be yours yet, so it stays hidden instead of showing someone else's numbers.</p>
+   </div>
    <div class="g" id="card-fc" data-source="model">
     <h3 id="fc-h">Tomorrow's recovery</h3>
     <div class="headline"><span class="v num" id="fc-v">—</span><span class="u" id="fc-u">predicted</span></div>
@@ -675,14 +680,26 @@
   // Baja un nivel si la VFC esta mas de 10% bajo su promedio de 30 dias
   // o el pulso en reposo esta 4 lpm o mas sobre el suyo.
   function dayCall() {
-    const w = whoopRows(); if (!w || !w.length) return null;
+    const w = whoopRows() || [];
     // La ultima fila puede venir vacia: intervals.icu crea el dia de bienestar en cuanto
     // amanece (y hasta el de manana segun la zona horaria) aunque Whoop todavia no haya
     // mandado la recuperacion. Antes se miraba esa fila a ciegas y la app se rendia con
     // un dia perfecto en la fila de atras. Se toma la ultima que SI trae recuperacion.
-    const last = w.filter((x) => isFinite(x.recovery)).slice(-1)[0];
-    if (!last) return null;
+    const last = w.filter((x) => isFinite(x.recovery)).slice(-1)[0] || null;
     const now = new Date(); const todayIso = new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    // Quien NO usa Whoop igual tiene que recibir una decision: se arma con lo que si
+    // tiene (frescura, relacion de carga, dias seguidos entrenando). Antes la app se
+    // quedaba muda para siempre, y la mayoria de los ciclistas no usa Whoop.
+    //
+    // Ojo con la diferencia: si el ciclista SI usa Whoop y hoy el dato viene atrasado,
+    // NO se decide por carga. Se dice que falta, porque la recuperacion es mejor senal
+    // y esta por llegar; decidir sin ella seria esconderle que sus datos no entraron.
+    const usaWhoop = !!last && (pd(todayIso) - last.dt) <= 14 * DAY;
+    if (!usaWhoop) {
+      const sinRec = porCarga(todayIso);
+      if (sinRec) return sinRec;
+    }
+    if (!last) return null;
     const freshEnough = (pd(todayIso) - last.dt) <= DAY;   // de hoy o de ayer; mas viejo no decide el dia
     if (!freshEnough) return null;
     // Con menos de 28 dias de historial real, la relacion de carga se dispara sola (el calculo
@@ -700,7 +717,32 @@
     const downgraded = (hrvLow || rhrHigh) && level > 0;
     if (downgraded) level -= 1;
     const spike = level === 2 && acwr != null && acwr > 1.5;
-    return { date: last.date, rec, level, downgraded, spike, acwr, why, stale: last.date !== todayIso };
+    return { date: last.date, rec, level, downgraded, spike, acwr, why, base: 'whoop', stale: last.date !== todayIso };
+  }
+
+  // La decision cuando no hay recuperacion: solo con la carga de entrenamiento.
+  // Reglas conservadoras a proposito. Sin el dato del cuerpo no se puede afinar, asi que
+  // ante la duda se baja el nivel, nunca se sube.
+  function porCarga(todayIso) {
+    const s = pmcState();
+    // Hace falta historial de verdad: con pocos dias la relacion de carga se dispara sola.
+    if (!s || !s.last || s.real.length < 28) return null;
+    const acts = rowsOf('activities') || [];
+    const racha = noRestStreak(acts, todayIso);
+    const acwr = +s.last.acwr;
+    const form = +s.last.form;
+    const why = [];
+    let level = 2;
+    const baja = (n, motivo) => { if (n < level) { level = n; } why.push(motivo); };
+    if (isFinite(acwr) && acwr > 1.5) baja(0, L(`your last 7 days are ${fmt2(acwr)}x your month`, `tus últimos 7 días son ${fmt2(acwr)} veces tu mes`));
+    else if (isFinite(acwr) && acwr > 1.3) baja(1, L(`your load ratio is ${fmt2(acwr)}`, `tu relación de carga es ${fmt2(acwr)}`));
+    if (racha >= 6) baja(0, L(`${racha} days in a row without rest`, `${racha} días seguidos sin descanso`));
+    else if (racha >= 4) baja(1, L(`${racha} days in a row without rest`, `${racha} días seguidos sin descanso`));
+    if (isFinite(form) && form < -25) baja(0, L(`your freshness is ${fmt0(form)}`, `tu frescura está en ${fmt0(form)}`));
+    else if (isFinite(form) && form < -10) baja(1, L(`your freshness is ${fmt0(form)}`, `tu frescura está en ${fmt0(form)}`));
+    return { date: todayIso, rec: null, level, downgraded: false, spike: false,
+      acwr: isFinite(acwr) ? acwr : null, form: isFinite(form) ? form : null, racha,
+      why, base: 'carga', stale: false };
   }
   function callTargets(level, spike) {
     const z = firstOf('zones');
@@ -728,16 +770,29 @@
   }
 
   function renderCall() {
-    const w = whoopRows(); if (!w || !w.length) return;
-    const last = w[w.length - 1]; const c = dayCall(); const isToday = !!c && !c.stale;
-    txt('call-cap', isToday
-      ? L('Your recovery this morning: ', 'Tu recuperación de esta mañana: ') + fmt0(last.recovery) + '%.'
-      : L('Waiting for this morning’s recovery. Latest: ', 'Esperando la recuperación de esta mañana. La última: ') + fmt0(last.recovery) + '% · ' + dFmt(last.dt) + '.');
+    const w = whoopRows() || [];
+    const c = dayCall();
+    // Sin Whoop la tabla no puede hablar de porcentajes de recuperacion: se muestran
+    // las mismas tres salidas, pero rotuladas con lo que de verdad decide el dia.
+    const porCargaAhora = !!c && c.base === 'carga';
+    const card = $('card-call'); if (card) card.hidden = !c && !w.length;
+    if (!c && !w.length) return;
+    const last = w.filter((x) => isFinite(x.recovery)).slice(-1)[0] || null;
+    const isToday = !!c && !c.stale;
+    txt('call-cap', porCargaAhora
+      ? L('No recovery data, so today is decided from your training load.', 'Sin datos de recuperación, así que el día se decide por tu carga de entrenamiento.')
+      : !last ? L('Waiting for this morning’s recovery.', 'Esperando la recuperación de esta mañana.')
+      : isToday
+        ? L('Your recovery this morning: ', 'Tu recuperación de esta mañana: ') + fmt0(last.recovery) + '%.'
+        : L('Waiting for this morning’s recovery. Latest: ', 'Esperando la recuperación de esta mañana. La última: ') + fmt0(last.recovery) + '% · ' + dFmt(last.dt) + '.');
     const t0 = callTargets(0), t1 = callTargets(1), t2 = callTargets(2, c && c.spike);
+    const claves = porCargaAhora
+      ? [L('Fresh', 'Fresco'), L('Loaded', 'Cargado'), L('Deep', 'Muy cargado')]
+      : ['67%+', '34–66%', '<34%'];
     const opts = [
-      { k: '67%+', c: '#30D158', t: t2.title, d: t2.detail, on: !!c && c.level === 2 },
-      { k: '34–66%', c: '#FFD60A', t: t1.title, d: t1.detail, on: !!c && c.level === 1 },
-      { k: '<34%', c: '#FF453A', t: t0.title, d: t0.detail, on: !!c && c.level === 0 }
+      { k: claves[0], c: '#30D158', t: t2.title, d: t2.detail, on: !!c && c.level === 2 },
+      { k: claves[1], c: '#FFD60A', t: t1.title, d: t1.detail, on: !!c && c.level === 1 },
+      { k: claves[2], c: '#FF453A', t: t0.title, d: t0.detail, on: !!c && c.level === 0 }
     ];
     const host = $('rule'); host.replaceChildren();
     opts.forEach((o) => { const r = el('div', 'opt' + (o.on ? ' on' : '')); const k = el('div', 'rk num', o.k); k.style.color = o.c; r.appendChild(k); const v = el('div', 'rv'); v.appendChild(el('b', null, o.t)); if (o.d) { v.appendChild(document.createElement('br')); v.appendChild(document.createTextNode(o.d)); } r.appendChild(v); host.appendChild(r); });
@@ -852,10 +907,20 @@
     if (c) {
       const t = callTargets(c.level, c.spike);
       txt('hdr-title', c.level === 0 ? L('Rest today', 'Hoy toca descansar') : c.level === 1 ? L('Go easy today', 'Hoy ve suave') : c.spike ? L('Train, but keep it zone 2', 'Entrena, pero quédate en zona 2') : L('Good to train today', 'Hoy puedes entrenar'));
-      const bits = [L(`Recovery ${fmt0(c.rec)}%`, `Recuperación ${fmt0(c.rec)}%`)];
+      // Sin Whoop el titular tiene que decir con que decidio, para que no parezca que
+      // se invento el numero: la frescura y la carga son lo unico que hay.
+      const bits = c.base === 'carga'
+        ? [c.why.length
+            ? L(`From your training load: ${c.why.join(L(' and ', ' y '))}`, `Por tu carga de entrenamiento: ${c.why.join(' y ')}`)
+            : L('From your training load: freshness and load ratio are in a good place', 'Por tu carga de entrenamiento: tu frescura y tu relación de carga están bien')]
+        : [L(`Recovery ${fmt0(c.rec)}%`, `Recuperación ${fmt0(c.rec)}%`)];
       if (c.downgraded) bits.push(L(`dropped one level because ${c.why.join(L(' and ', ' y '))}`, `bajó un nivel porque ${c.why.join(' y ')}`));
       else if (c.spike) bits.push(L(`load ratio ${fmt2(c.acwr)} is over 1.5, so keep it aerobic`, `la relación de carga ${fmt2(c.acwr)} pasa de 1.5, así que mantenlo aeróbico`));
-      bits.push(t.title + (t.detail ? ' (' + t.detail + ')' : ''));
+      const yaHoy = entrenadoHoy();
+      if (yaHoy) bits.push(L(`you already trained today, ${fmt0(yaHoy.min)} min`, `ya entrenaste hoy, ${fmt0(yaHoy.min)} min`));
+      bits.push(yaHoy && c.level === 2
+        ? L('Nothing else is required today', 'Hoy no hace falta nada más')
+        : t.title + (t.detail ? ' (' + t.detail + ')' : ''));
       if (c.stale) bits.push(L('Based on yesterday’s numbers: today’s have not arrived yet.', 'Con los números de ayer: los de hoy todavía no llegan.'));
       const text = bits.map((x) => x.charAt(0).toUpperCase() + x.slice(1)).join('. ');
       txt('hdr-sub', /[.!?]$/.test(text) ? text : text + '.');
@@ -1031,6 +1096,40 @@
   function ownWellness() {
     const wr = whoopRows() || [];
     return wr.filter((x) => String(x.source || '') !== 'example' && isFinite(x.recovery)).slice(-1)[0] || null;
+  }
+
+  // Lo que ya se entreno hoy. El titular, la tarjeta del entrenamiento y el gato miran
+  // esto mismo, para que no se contradigan entre si.
+  function entrenadoHoy() {
+    const hoy = todayIsoLocal();
+    const hechas = (rowsOf('activities') || []).filter((a) => a.date === hoy && isTrainingDay(a));
+    if (!hechas.length) return null;
+    return {
+      n: hechas.length,
+      min: hechas.reduce((t, a) => t + (+a.moving_min || 0), 0),
+      carga: hechas.reduce((t, a) => t + (+a.relative_effort || 0), 0),
+    };
+  }
+
+  // ¿El ciclista ya tiene datos suyos? Si los tiene, ninguna pantalla debe caer en el
+  // contenido de ejemplo: es preferible esconder la tarjeta a mostrar numeros de otro.
+  // Sin cuenta conectada, el ejemplo si sirve como vista previa de lo que va a ver.
+  function misDatos() {
+    if (ownWellness()) return true;
+    const a = rowsOf('activities') || [];
+    // Se pregunta por la marca propia, no por la falta de la de ejemplo: las actividades
+    // de muestra no traen ninguna marca, asi que lo segundo daria siempre que si.
+    const propias = ['intervals.icu', 'manual', 'export'];
+    return a.some((x) => propias.includes(String(x.source || '')));
+  }
+
+  // Esconde una tarjeta que todavia no se puede calcular con datos propios. Devuelve true
+  // si quedo escondida, para que quien la dibuja se pueda ir sin hacer nada mas.
+  function ocultarSiEjemplo(cardId) {
+    const c = $(cardId); if (!c) return false;
+    const esconder = misDatos();
+    c.hidden = esconder;
+    return esconder;
   }
 
   // Lo que el entrenador dejo escrito para un dia, si lo hay.
@@ -1316,9 +1415,12 @@
 
     // Los proximos dias: los que armo el entrenador, y si no hay, los del ejemplo.
     const ul = $('plan'); ul.replaceChildren();
+    // Con datos propios y sin plan del entrenador, mejor decirlo que ensenar los dias de otro.
     const rows = mine.length
       ? mine.map((p) => ({ day: p.date, label: p.title || (p.decision === 'descanso' ? L('Rest', 'Descanso') : p.decision === 'suave' ? L('Easy ride', 'Rodada suave') : L('Training', 'Entrenamiento')), detail: p.purpose || p.note || '' }))
-      : (b ? arr(b.plan) : []);
+      : (misDatos() ? [] : (b ? arr(b.plan) : []));
+    const vacio = $('plan-vacio');
+    if (vacio) vacio.hidden = rows.length > 0;
     rows.forEach((p) => {
       const li = el('li'); const d = el('div', 'pd'); d.appendChild(document.createTextNode(wdFmt(pd(p.day)))); d.appendChild(el('b', 'num', String(pd(p.day).getUTCDate()))); li.appendChild(d);
       const body = el('div'); body.appendChild(el('div', 'pl', p.label)); body.appendChild(el('div', 'pt', p.detail)); li.appendChild(body); ul.appendChild(li);
@@ -1334,6 +1436,7 @@
     // Metas de verdad si las hay; si no, las del ejemplo.
     const list = goals.length
       ? goals.map((g) => ({ n: g.name, d: g.date, from: null, note: g.notes || '' }))
+      : misDatos() ? []
       : (b ? arr(b.races).filter((r) => pd(r.d) >= today) : []);
     list.forEach((r) => {
       const days = Math.round((pd(r.d) - today) / DAY);
@@ -1508,6 +1611,9 @@
       [['Training days', y.training_days, 'of ' + y.total_days], ['Rest days', y.rest_days, dFmt(pd(y.period_start)) + ' – ' + dFmt(pd(y.period_end))], ['Longest streak', y.longest_no_rest_streak_days + ' d', dFmt(pd(y.longest_no_rest_streak_start)) + ' – ' + dFmt(pd(y.longest_no_rest_streak_end))], ['Training time', fmt0(+y.total_hours) + ' h', fmt0(+y.total_activities) + ' activities']].forEach(([k, v, d]) => { const ch = el('div', 'chip'); ch.appendChild(el('div', 'k', k)); ch.appendChild(el('div', 'v num', String(v))); ch.appendChild(el('div', 'd', d)); c.appendChild(ch); });
       txt('ytd-note', y.note);
     }
+    // El cumplimiento compara lo recomendado contra lo hecho, y lo recomendado sale del
+    // calculo de cada manana, que todavia no existe. Con datos propios se esconde.
+    if (ocultarSiEjemplo('card-comp')) return;
     const comp = rowsOf('compliance');
     if (comp) { const ul = $('comp'); ul.replaceChildren(); comp.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).forEach((r) => {
       const li = el('li'); li.dataset.key = r.date; const ic = el('div', 'ic'); ic.appendChild(icon(r.followed === 'yes' ? 'check' : 'gauge')); li.appendChild(ic);
@@ -1790,7 +1896,9 @@
     else if (form >= 0 && (rec == null || rec >= 67)) st = 'strong';
     else st = 'ready';
     const fat = st === 'lazy' ? clamp(neglect - 2, 1, 5) : 0;
-    return { st, fat, idle, neglect, streak, rec, form, acwr, overTrained, fitness: +last.fitness, lvl: clamp(last.fitness / peakY, 0, 1), size: clamp(last.fitness / peakEver, 0.22, 1), gen: pet.gen || 1, restPlanned, ...mainSport() };
+    const hoyMin = train.filter((a) => a.date === todayIso).reduce((n, a) => n + (+a.moving_min || 0), 0);
+    const hoyCarga = train.filter((a) => a.date === todayIso).reduce((n, a) => n + (+a.relative_effort || 0), 0);
+    return { st, fat, idle, neglect, streak, rec, form, acwr, overTrained, trainedToday, hoyMin, hoyCarga, fitness: +last.fitness, lvl: clamp(last.fitness / peakY, 0, 1), size: clamp(last.fitness / peakEver, 0.22, 1), gen: pet.gen || 1, restPlanned, ...mainSport() };
   }
   function petDeadSvg() {
     const STONE = '#9AA3B0', STONE_D = '#767F8C', INK = '#1d1d1f';
@@ -2001,6 +2109,16 @@
     let say;
     if (P.st === 'dead') say = L(`A full week without any training you really needed was too much for ${petName}. Time to adopt a new kitten.`, `Una semana entera sin el entrenamiento que de verdad hacía falta fue demasiado para ${petName}. Hora de adoptar un gatito nuevo.`);
     else if (P.overTrained) say = L(`You trained on a day I needed you to rest (recovery ${P.rec != null ? fmt0(P.rec) : '-'}%)... I'm tired now, not stronger.`, `Entrenaste en un día que tocaba descansar (recuperación ${P.rec != null ? fmt0(P.rec) : '-'}%)... ahora estoy cansado, no más fuerte.`);
+    // Si ya entrenaste hoy, el gato no puede decir "listo para darle" como si no hubiera
+    // pasado nada. Reconoce lo hecho, y solo propone mas si de verdad queda margen.
+    else if (P.trainedToday && (P.st === 'strong' || P.st === 'ready')) {
+      const hecho = P.hoyMin >= 1 ? L(`${fmt0(P.hoyMin)} min done today`, `${fmt0(P.hoyMin)} min hechos hoy`) : L('Session done today', 'Sesión hecha hoy');
+      // Queda margen solo si fue corto y ademas estas fresco de verdad.
+      const queda = P.st === 'strong' && P.hoyMin < 60 && P.form > 0;
+      say = queda
+        ? L(`${hecho}, and I still have legs. If you want more, keep it aerobic.`, `${hecho}, y todavía me quedan piernas. Si querés más, mantenelo aeróbico.`)
+        : L(`${hecho}. We did our part: rest until tomorrow.`, `${hecho}. Ya cumplimos: a descansar hasta mañana.`);
+    }
     else if (P.st === 'strong') say = L(`I'm on fire! Fresh and strong: a great day to ${V[0]} hard.`, `¡Estoy a tope! Fresco y fuerte: hoy es buen día para ${V[1]} duro.`);
     else if (P.st === 'ready') say = L(`Ready to ${V[0]}. Stick to the plan and we keep levelling up.`, `Listo para ${V[1]}. Sigue el plan y seguimos subiendo de nivel.`);
     else if (P.st === 'tired') say = L(`I'm a bit tired... easy today, ok? Freshness is ${f}.`, `Estoy cansadito... hoy suave, ¿sí? Tu frescura está en ${f}.`);
@@ -2061,7 +2179,7 @@
     "Load is relative effort from intervals.icu (heart-rate based), so MTB days count too. Fitness = 42-day average, fatigue = 7-day, form = yesterday's fitness minus fatigue.": 'La carga es el esfuerzo relativo de intervals.icu (basado en el pulso), así que los días de montaña también cuentan. Forma física = promedio de 42 días, fatiga = 7 días, frescura = forma física de ayer menos fatiga.',
     'Load ratio': 'Relación de carga', '7 days vs 28-day avg': '7 días vs promedio de 28',
     'Green band 0.8–1.3 builds fitness safely. Above the red line (1.5) injury and illness risk climbs.': 'La banda verde 0.8–1.3 construye forma con seguridad. Sobre la línea roja (1.5) sube el riesgo de lesión y enfermedad.',
-    'Aerobic efficiency': 'Eficiencia aeróbica', 'W per bpm': 'W por lpm', 'Thursday fast': 'Jueves rápido', 'Long ride': 'Rodada larga', 'Easy ride': 'Rodada suave',
+    'Aerobic efficiency': 'Eficiencia aeróbica', 'W per bpm': 'W por lpm', 'Hard ride': 'Rodada fuerte', 'Long ride': 'Rodada larga', 'Easy ride': 'Rodada suave',
     'More watts for the same heart rate = a stronger engine. Compare rides of the same type.': 'Más vatios con el mismo pulso = un motor más fuerte. Compara rodadas del mismo tipo.',
     'Power to weight': 'Potencia por peso', 'W/kg best 5 min, latest': 'W/kg mejor 5 min, la más reciente', 'Ride average': 'Promedio de la rodada', 'Working FTP (dashed)': 'FTP de trabajo (discontinua)',
     'Body (Whoop)': 'Cuerpo (Whoop)', 'Heart rate variability': 'Variabilidad de la frecuencia cardíaca', 'ms, 7-day average': 'ms, promedio de 7 días',
@@ -2089,6 +2207,9 @@
     'when its benefit peaks': 'cuando su beneficio llega al máximo', 'on your 20-min power': 'en tu potencia de 20 min', 'fitness today': 'forma física hoy',
     'All-time peak': 'Máximo histórico', 'Typical yearly peak': 'Pico anual típico', 'Fastest build': 'Construcción más rápida', 'Breaks of 2+ weeks': 'Pausas de 2+ semanas',
     'Is the model right?': '¿Acierta el modelo?', 'Recovery spin 45 min': 'Rodada suave 45 min', 'Zone 2, 2 h': 'Zona 2, 2 h', 'Sweet spot 3x10': 'Punto dulce 3x10',
+    'No plan yet. Ask your coach in the chat to build your next days.': 'Todavía no hay plan. Pídele a tu entrenador en el chat que arme tus próximos días.',
+    'Your model is not built yet': 'Tu modelo todavía no existe',
+    "This tab learns from your own data: how your body answers to training, and what your recovery will be tomorrow. It needs the morning calculation on the server, which is still being built. Nothing here would be yours yet, so it stays hidden instead of showing someone else's numbers.": 'Esta pestaña aprende de tus propios datos: cómo responde tu cuerpo al entrenamiento y cuál será tu recuperación mañana. Necesita el cálculo de cada mañana en el servidor, que todavía se está construyendo. Nada de aquí sería tuyo todavía, así que se esconde en vez de mostrarte números de otra persona.',
     'Long ride 4 h': 'Rodada larga 4 h', 'Race / very hard': 'Carrera / muy duro', 'Share cancelled.': 'Cancelado.',
     'Sign in to bring in your own data.': 'Entra a tu cuenta para traer tus datos.',
     'Tap Refresh to bring in your history.': 'Toca Actualizar para traer tu historial.',
@@ -2143,7 +2264,7 @@
     [' h a night this week vs a need near ', ' h por noche esta semana vs una necesidad cercana a '], [' h. Your nights under 6 h cost about 13 recovery points.', ' h. Tus noches de menos de 6 h cuestan unos 13 puntos de recuperación.'],
     ['Best this year: ', 'Mejor del año: '], [' W/kg on ', ' W/kg el '],
     ['. Your top end comes back fastest once you are fresh, so it is the first thing to retest after a break.', '. Tu potencia máxima vuelve más rápido cuando estás fresco, así que es lo primero a probar de nuevo después de un descanso.'],
-    ['W/kg at ', 'W/kg con '], [' kg all year. Working FTP ', ' kg todo el año. FTP de trabajo '], ['Your 20-min bests point to where your FTP sits right now. Easy rides are left out here.', 'Tus mejores 20 min indican dónde está tu FTP ahora mismo. Las rodadas suaves no se incluyen.'],
+    ['Your best 5 and 20 min from each ride with a power meter. Working FTP ', 'Tus mejores 5 y 20 min de cada salida con potenciómetro. FTP de trabajo '], ['Your 20-min bests point to where your FTP sits right now. Easy rides are left out here.', 'Tus mejores 20 min indican dónde está tu FTP ahora mismo. Las rodadas suaves no se incluyen.'],
     [' vs 30-day', ' vs 30 días'], ['Whoop · ', 'Whoop · '], ['need ≈', 'necesitas ≈'], ['HRV ', 'VFC '], [' vs ', ' vs '], ['Weight', 'Peso'],
     [' kg (your Strava weight). FTP ', ' kg (tu peso en intervals.icu). FTP '], [' W/kg) from your Strava settings. ', ' W/kg) de tu perfil de intervals.icu. '], [' Easy rides are left out here.', ' Las rodadas suaves no se incluyen.'],
     ['Your fatigue lingers longer than the textbook 7 days, so hard blocks keep your power down for a while and', 'Tu fatiga dura más que los 7 días de manual, así que los bloques duros bajan tu potencia por un tiempo y'],
@@ -2197,7 +2318,13 @@
     if (page === 'today') { safe(renderRings); safe(renderPet); safe(renderCall); safe(renderWeek); safe(renderWorkout); safe(renderInsights); safe(renderPlan); }
     if (page === 'trends') { safe(renderHrv); safe(renderRhr); safe(renderSleep); safe(renderFx); safe(renderPmc); safe(renderAcwr); safe(renderPower); safe(renderEf); safe(renderMonth); }
     if (page === 'history') safe(renderHistory);
-    if (page === 'model') { safe(renderForecast); safe(renderScen); safe(renderDrivers); safe(renderResp); safe(renderYears); safe(renderAcc); }
+    if (page === 'model') {
+      // Todas estas tarjetas salen del modelo, que todavia no se entrena con datos propios.
+      const sin = misDatos();
+      const aviso = $('card-sinmodelo'); if (aviso) aviso.hidden = !sin;
+      ['card-fc', 'card-scen', 'card-drv', 'card-resp', 'card-years', 'card-acc'].forEach((id) => { const c = $(id); if (c) c.hidden = sin; });
+      if (!sin) { safe(renderForecast); safe(renderScen); safe(renderDrivers); safe(renderResp); safe(renderYears); safe(renderAcc); }
+    }
     safe(translateAll);
   }
   dash.onData(render);
