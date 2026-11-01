@@ -744,6 +744,16 @@
       acwr: isFinite(acwr) ? acwr : null, form: isFinite(form) ? form : null, racha,
       why, base: 'carga', stale: false };
   }
+  // La decision que se muestra: la del modelo, o la que el ciclista eligio a mano.
+  // Elegir a mano no borra la del modelo, solo la pisa para hoy: asi se puede volver.
+  function dayCallFinal() {
+    const c = dayCall(); if (!c) return null;
+    const tw = tweak();
+    if (tw.nivel == null) return c;
+    const n = Math.max(0, Math.min(2, +tw.nivel));
+    return { ...c, level: n, elegido: true, nivelModelo: c.level, spike: n === 2 && c.spike };
+  }
+
   function callTargets(level, spike) {
     const z = firstOf('zones');
     const pz = z ? arr(obj(z.power_zones)) : []; const hz = z ? arr(obj(z.heart_rate_zones)) : [];
@@ -771,7 +781,7 @@
 
   function renderCall() {
     const w = whoopRows() || [];
-    const c = dayCall();
+    const c = dayCallFinal();
     // Sin Whoop la tabla no puede hablar de porcentajes de recuperacion: se muestran
     // las mismas tres salidas, pero rotuladas con lo que de verdad decide el dia.
     const porCargaAhora = !!c && c.base === 'carga';
@@ -904,7 +914,7 @@
   // ---------- TODAY ----------
   function renderHeader() {
     const b = firstOf('brief'); if (!b) return;
-    const c = dayCall();
+    const c = dayCallFinal();
     // El ultimo dato de bienestar que es suyo de verdad (de su cuenta o escrito a mano),
     // no el de los datos de ejemplo.
     const mine = ownWellness();
@@ -1034,7 +1044,7 @@
           label = dec === 'descanso' ? L('Rest', 'Descanso') : dec === 'suave' ? L('Easy', 'Suave') : L('Train', 'Entrenar');
         } else if (i === 0) {
           // Hoy sin plan del entrenador: entran las reglas como respaldo.
-          const c = dayCall();
+          const c = dayCallFinal();
           if (c && !c.stale) {
             const lvl = tw.rough ? Math.max(0, c.level - 1) : c.level;
             cls = lvl === 0 ? 'rest' : 'done'; ic = lvl === 0 ? 'rest' : 'bike';
@@ -1214,7 +1224,7 @@
         fromCoach: true,
       }];
     }
-    const c = dayCall(); if (!c || c.stale) return null;
+    const c = dayCallFinal(); if (!c || c.stale) return null;
     const z = firstOf('zones');
     const pz = z ? arr(obj(z.power_zones)) : []; const hz = z ? arr(obj(z.heart_rate_zones)) : [];
     const find = (list, re) => list.find((x) => re.test(String(x.label || ''))) || null;
@@ -1274,6 +1284,23 @@
       });
       host.appendChild(r);
     };
+    // Elegir la decision del dia a mano. El modelo propone, el ciclista decide:
+    // el sabe cosas que la app no (una reunion, un dolor, ganas).
+    const prop = c.level;
+    row(L('Today you are going to…', 'Hoy vas a…'), [
+      { label: L('What the app says', 'Lo que dice la app'), on: tw.nivel == null,
+        go: () => setTweak({ nivel: null, skip: false }) },
+      { label: L('Train', 'Entrenar'), on: tw.nivel === 2, go: () => setTweak({ nivel: 2, skip: false }) },
+      { label: L('Go easy', 'Ir suave'), on: tw.nivel === 1, go: () => setTweak({ nivel: 1, skip: false }) },
+      { label: L('Rest', 'Descansar'), on: tw.nivel === 0, go: () => setTweak({ nivel: 0, skip: false }) },
+    ]);
+    if (tw.nivel != null && tw.nivel > prop) {
+      const aviso = el('div', 'amq');
+      aviso.style.color = '#FF9F0A';
+      aviso.textContent = L('You are asking for more than your numbers suggest today. Keep an eye on how you feel.',
+        'Estás pidiendo más de lo que tus números sugieren hoy. Fíjate en cómo te sientes.');
+      host.appendChild(aviso);
+    }
     if (!tw.skip && !(c.level === 2 && !c.spike && !tw.rough)) {
       const mins = [30, 45, 60, 90];
       row(L('How much time do you have?', '¿Cuánto tiempo tienes?'), [
@@ -1292,7 +1319,7 @@
     const ftp = (firstOf('zones') || {}).ftp_w ? +firstOf('zones').ftp_w : 264;
     const card = $('card-workout');
     const mine = todaySession();
-    const c = dayCall();
+    const c = dayCallFinal();
     // Con decision propia y fresca, solo se muestra el entrenamiento propio. Si hoy no hay uno
     // (descanso, o "sesion planificada" que todavia depende del calculo de la manana), se dice
     // en vez de mostrar el de ejemplo, que es lo que confundia.
@@ -2131,7 +2158,7 @@
     let pts = 0;
     // La mascota sigue la misma decision del dia: si la app dice descansar, el gato no puede
     // decir que esta listo. Solo si no hay decision se cae a mirar la recuperacion sola.
-    const call = dayCall();
+    const call = dayCallFinal();
     if (call) pts += call.level === 0 ? 4 : call.level === 1 ? 2 : 0;
     else if (rec != null) pts += rec < 34 ? 3 : rec < 67 ? 1 : 0;
     pts += form < -20 ? 2 : form < -10 ? 1 : 0;
@@ -2629,7 +2656,7 @@
   window.rrCoach = {
     pedirBloqueSiToca,
     context() {
-      const c = dayCall(); const s = pmcState(); const z = firstOf('zones') || {};
+      const c = dayCallFinal(); const s = pmcState(); const z = firstOf('zones') || {};
       const w = whoopRows(); const wl = w && w.length ? w[w.length - 1] : null;
       const tw = tweak(); const sess = (todaySession() || [])[0];
       const acwrReady = !!(s && s.real.length >= 28);
@@ -2670,7 +2697,8 @@
       const day = /^\d{4}-\d{2}-\d{2}$/.test(a.day || '') ? a.day : todayIsoLocal();
       if (a.reset) { clearTweak(day); return; }
       const patch = {};
-      if (a.mins != null) patch.mins = a.mins;
+      if (a.nivel != null) patch.nivel = a.nivel;
+    if (a.mins != null) patch.mins = a.mins;
       if (a.rough != null) patch.rough = !!a.rough;
       if (a.skip != null) patch.skip = !!a.skip;
       if (a.skip) patch.rough = false;
